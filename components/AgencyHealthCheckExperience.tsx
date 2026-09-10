@@ -47,7 +47,10 @@ export default function AgencyHealthCheckExperience() {
   const pendingLeadRef = useRef<Promise<Response> | null>(null);
 
   useEffect(() => {
-    const utmParams: UtmParams = { landingUrl: typeof window !== "undefined" ? window.location.href : undefined };
+    const utmParams: UtmParams = {
+      landingUrl: typeof window !== "undefined" ? window.location.href : undefined,
+      referrer: typeof document !== "undefined" && document.referrer ? document.referrer : undefined,
+    };
     UTM_KEYS.forEach((key) => {
       const value = searchParams.get(key);
       if (value) utmParams[key] = value;

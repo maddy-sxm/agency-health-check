@@ -18,19 +18,16 @@
  * Production MUST have these set — see README.md.
  *
  * ============================================================================
- * DOWNSTREAM DELIVERY (Google Sheets)
+ * SWAPPING IN A REAL CRM / WEBHOOK (Zapier, HubSpot, Google Sheets, etc.)
  * ============================================================================
- * Every saved lead is also POSTed to the SPEEDX Google Sheet via
- * `forwardToWebhook()` below — see lib/sheets-webhook.ts for the payload
- * mapping and scripts/google-sheets-webhook.gs for the receiving Apps
- * Script. This runs whether or not Redis is configured, so the sheet is the
- * one destination that always receives a completed submission. To add a
- * second destination (CRM, Zapier, etc.), extend `forwardToWebhook()`.
+ * There is exactly ONE integration point to change: `forwardToWebhook()`
+ * below. It is called every time a lead is saved, right after the Redis
+ * write. Replace the no-op body with a `fetch()` POST to your Zapier/
+ * HubSpot/Sheets webhook URL. Nothing else in the app needs to change.
  * ============================================================================
  */
 
 import { Redis } from "@upstash/redis";
-import { forwardLeadToSheet } from "./sheets-webhook";
 import type { LeadRecord } from "./types";
 
 const KEY_PREFIX = "agency-health-check";
@@ -55,29 +52,30 @@ function redis(): Redis | null {
 }
 
 /**
- * Fan-out to every downstream destination. Each target must swallow its
- * own errors — a failure here must never fail the respondent's request.
+ * THE single integration point for a future CRM/webhook swap.
+ * Replace with e.g.:
+ *   await fetch(process.env.LEAD_WEBHOOK_URL!, {
+ *     method: "POST",
+ *     headers: { "Content-Type": "application/json" },
+ *     body: JSON.stringify({ type: "lead", record }),
+ *   });
  */
 async function forwardToWebhook(record: LeadRecord): Promise<void> {
-  await forwardLeadToSheet(record);
+  // No-op for now — leads live only in Redis until this is wired up.
+  void record;
 }
 
 export async function saveLead(record: LeadRecord): Promise<void> {
   const client = redis();
   if (!client) {
     console.warn(
-      `[agency-health-check] KV_REST_API_URL / KV_REST_API_TOKEN not set — lead ${record.leadId} was NOT persisted to Redis. ` +
+      `[agency-health-check] KV_REST_API_URL / KV_REST_API_TOKEN not set — lead ${record.leadId} was NOT persisted. ` +
         "This is expected in local dev without Upstash credentials; it must be fixed before production launch."
     );
-  } else {
-    try {
-      await client.set(leadKey(record.leadId), record);
-      await client.rpush(LEADS_INDEX_KEY, record.leadId);
-    } catch (err) {
-      // Still forward to the sheet below — Redis being down shouldn't lose the lead entirely.
-      console.error(`[agency-health-check] Redis write failed for lead ${record.leadId}:`, err);
-    }
+    return;
   }
+  await client.set(leadKey(record.leadId), record);
+  await client.rpush(LEADS_INDEX_KEY, record.leadId);
   await forwardToWebhook(record);
 }
 

@@ -18,7 +18,6 @@ const utmSchema = z
     utm_term: z.string().max(255).optional(),
     utm_content: z.string().max(255).optional(),
     landingUrl: z.string().max(2048).optional(),
-    referrer: z.string().max(2048).optional(),
   })
   .partial();
 

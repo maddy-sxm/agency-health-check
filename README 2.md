@@ -84,20 +84,13 @@ Classification: 75–100 Tier 1 High Priority · 55–74 Tier 2 Qualified · 35�
 
 Shares the same Upstash Redis instance as the sibling tools, isolated by key prefix — `agency-health-check:` here. **Confirm zero existing keys under that prefix** before first real use, same discipline as every tool in this suite (see `lib/leads.ts`). Read leads back via `GET /api/leads?token=<ADMIN_TOKEN>`.
 
-## Google Sheets lead sync
+## Swapping in a real CRM / webhook
 
-Every completed submission is POSTed to the SPEEDX lead sheet ("Agency Tool Leads" tab) by `forwardLeadToSheet()` in `lib/sheets-webhook.ts`, called from `saveLead()` in `lib/leads.ts`. It fires **whether or not Redis is configured**, so the sheet always receives the lead. The payload keys match the sheet's "Webhook Setup" tab; the receiving Google Apps Script lives in `scripts/google-sheets-webhook.gs`.
-
-Setup:
-1. In the spreadsheet: Extensions → Apps Script → paste `scripts/google-sheets-webhook.gs` → Deploy → New deployment → Web app, execute as **Me**, access **Anyone** → copy the Web app URL.
-2. Set `LEAD_WEBHOOK_URL` to that URL in the hosting project's env vars (Production) and redeploy.
-3. Verify: `GET` the URL in a browser returns `{"ok":true,...}`; a test submission appends a row.
-
-Failures are logged and never fail the respondent's request. Re-deploy a new Apps Script version after editing the script. To add another destination (CRM, Zapier), extend `forwardToWebhook()` in `lib/leads.ts`.
+Exactly one integration point: `forwardToWebhook()` in `lib/leads.ts`, called right after every Redis write. Replace the no-op body with a `fetch()` POST to the real Zapier/HubSpot/Sheets destination. Nothing else in the app needs to change.
 
 ## Known placeholders to fill in before launch
 
 - `lib/pixel.ts` — `PIXEL_ID` is blank (Meta Pixel).
 - `lib/copy.ts` — `CTA_HREF` points at a `mailto:` placeholder; swap for the real booking/contact destination (used by both the results-screen CTA and the lead form's "Set Up a Free Strategy Call" button). `COPY.footer.email` is a placeholder company contact address.
 - `lib/email.ts` — `sendAgencyHealthReportEmail()` currently only logs a warning; no email provider is wired up. See the file's header comment for the one-function swap (Resend/Postmark/SendGrid) — `buildReportEmailBody()` already assembles the report text from the same data the results screen used to show inline.
-- `.env.local` — see `.env.example`. `LEAD_WEBHOOK_URL` must be set in production or submissions never reach the sheet.
+- `.env.local` — all three vars blank locally (see "Local dev without Redis"). Set real values before production.

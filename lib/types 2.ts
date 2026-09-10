@@ -86,8 +86,6 @@ export interface UtmParams {
   utm_term?: string;
   utm_content?: string;
   landingUrl?: string;
-  /** document.referrer at first load — external source attribution for the sheet. */
-  referrer?: string;
 }
 
 export interface Signal {
