@@ -89,7 +89,7 @@ Shares the same Upstash Redis instance as the sibling tools, isolated by key pre
 Every completed submission is POSTed to the SPEEDX lead sheet ("Agency Tool Leads" tab) by `forwardLeadToSheet()` in `lib/sheets-webhook.ts`, called from `saveLead()` in `lib/leads.ts`. It fires **whether or not Redis is configured**, so the sheet always receives the lead. The payload keys match the sheet's "Webhook Setup" tab; the receiving Google Apps Script lives in `scripts/google-sheets-webhook.gs`.
 
 Setup:
-1. In the spreadsheet: Extensions → Apps Script → paste `scripts/google-sheets-webhook.gs` → Deploy → New deployment → Web app, execute as **Me**, access **Anyone** → copy the Web app URL.
+1. At script.google.com (any account with edit access to the sheet): New project → paste `scripts/google-sheets-webhook.gs` → Deploy → New deployment → Web app, execute as **Me**, access **Anyone** → copy the Web app URL.
 2. Set `LEAD_WEBHOOK_URL` to that URL in the hosting project's env vars (Production) and redeploy.
 3. Verify: `GET` the URL in a browser returns `{"ok":true,...}`; a test submission appends a row.
 
