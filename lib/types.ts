@@ -85,8 +85,12 @@ export interface UtmParams {
   utm_campaign?: string;
   utm_term?: string;
   utm_content?: string;
+  /** Ad-platform click ids, captured alongside UTMs (see lib/attribution.ts). */
+  gclid?: string;
+  fbclid?: string;
+  li_fat_id?: string;
   landingUrl?: string;
-  /** document.referrer at first load — external source attribution for the sheet. */
+  /** External document.referrer at first load — source attribution for the sheet. */
   referrer?: string;
 }
 

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
+import { resolveBrowserAttribution } from "@/lib/attribution";
 import { COPY, CTA_HREF } from "@/lib/copy";
 import { trackCustomEvent, trackLead } from "@/lib/pixel";
 import type { LeadContentName } from "@/lib/pixel";
@@ -24,8 +25,6 @@ import ReportSentScreen from "@/components/screens/ReportSentScreen";
 // post-submission receipt — the respondent already saw the full preview
 // before submitting, so there's nothing left to reveal here).
 type Stage = "hero" | "diagnostic" | "analyzing-diagnostic" | "qualification" | "leadForm" | "generating" | "results";
-
-const UTM_KEYS = ["utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content"] as const;
 
 export default function AgencyHealthCheckExperience() {
   const searchParams = useSearchParams();
@@ -59,16 +58,11 @@ export default function AgencyHealthCheckExperience() {
     trackLead(contentName);
   }, []);
 
+  // Attribution is resolved once per visit: current URL params win, else the
+  // stored first-touch from an earlier tagged visit, else organic/direct.
+  // See lib/attribution.ts for the precedence and the 30-day persistence.
   useEffect(() => {
-    const utmParams: UtmParams = {
-      landingUrl: typeof window !== "undefined" ? window.location.href : undefined,
-      referrer: typeof document !== "undefined" && document.referrer ? document.referrer : undefined,
-    };
-    UTM_KEYS.forEach((key) => {
-      const value = searchParams.get(key);
-      if (value) utmParams[key] = value;
-    });
-    setUtm(utmParams);
+    setUtm(resolveBrowserAttribution(searchParams));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

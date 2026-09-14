@@ -105,6 +105,10 @@ All three base tags render once from `app/layout.tsx` via `next/script` (the App
 
 The `<noscript>` fallback pixels are rendered server-side only (`dangerouslySetInnerHTML`); rendering them as JSX makes React also create the `<img>` on the client and double-counts `PageView`.
 
+## Attribution (UTMs, click ids, referrer)
+
+`lib/attribution.ts` resolves what a submission is attributed to. Campaign parameters in the current URL (`utm_*`, `gclid`, `fbclid`, `li_fat_id`) always win and are persisted in `localStorage` for 30 days; a later visit that arrives without them (typed the domain, bookmark) falls back to that stored campaign, so return visits keep their source. With neither, the record carries only the external referrer and landing URL. Same-site referrers (reloads) are ignored. Click ids ride along in the `utm` object and land in the sheet's Raw Payload JSON.
+
 ## Known placeholders to fill in before launch
 
 - `lib/copy.ts` — `CTA_HREF` points at a `mailto:` placeholder; swap for the real booking/contact destination (used by both the results-screen CTA and the lead form's "Set Up a Free Strategy Call" button). `COPY.footer.email` is a placeholder company contact address.

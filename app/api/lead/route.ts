@@ -17,6 +17,9 @@ const utmSchema = z
     utm_campaign: z.string().max(255).optional(),
     utm_term: z.string().max(255).optional(),
     utm_content: z.string().max(255).optional(),
+    gclid: z.string().max(512).optional(),
+    fbclid: z.string().max(512).optional(),
+    li_fat_id: z.string().max(512).optional(),
     landingUrl: z.string().max(2048).optional(),
     referrer: z.string().max(2048).optional(),
   })
