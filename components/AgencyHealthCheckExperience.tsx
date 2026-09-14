@@ -3,7 +3,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { COPY, CTA_HREF } from "@/lib/copy";
-import { trackCustomEvent, trackStandardEvent } from "@/lib/pixel";
+import { trackCustomEvent, trackLead } from "@/lib/pixel";
+import type { LeadContentName } from "@/lib/pixel";
 import { DIAGNOSTIC_QUESTIONS, QUALIFICATION_QUESTIONS } from "@/lib/questions";
 import { computePublicResult } from "@/lib/scoring";
 import type { ContactInfo, DiagnosticAnswers, PublicResult, QualificationAnswers, UtmParams } from "@/lib/types";
@@ -45,6 +46,18 @@ export default function AgencyHealthCheckExperience() {
   // flow. Kicked off immediately on lead-form submit, not awaited until the
   // animation finishes (see handleGeneratingDone).
   const pendingLeadRef = useRef<Promise<Response> | null>(null);
+
+  // Meta `Lead` must fire once per valid submission of each CTA — not on a
+  // blocked (invalid) click, and not again if the respondent retries after
+  // a network error. ReportPreviewScreen only calls the submit handlers
+  // after its validation passes, so firing there satisfies the first rule;
+  // this set enforces the second.
+  const leadEventsFiredRef = useRef<Set<LeadContentName>>(new Set());
+  const fireLeadOnce = useCallback((contentName: LeadContentName) => {
+    if (leadEventsFiredRef.current.has(contentName)) return;
+    leadEventsFiredRef.current.add(contentName);
+    trackLead(contentName);
+  }, []);
 
   useEffect(() => {
     const utmParams: UtmParams = {
@@ -148,6 +161,7 @@ export default function AgencyHealthCheckExperience() {
       setContact(submittedContact);
       setLeadError(null);
       pendingLeadRef.current = submitLead(submittedContact, "report");
+      fireLeadOnce("email_report");
       setStage("generating");
     },
     [submitLead]
@@ -164,7 +178,7 @@ export default function AgencyHealthCheckExperience() {
       submitLead(submittedContact, "call").catch(() => {
         // Best effort — the respondent is already headed to CTA_HREF below.
       });
-      trackStandardEvent("Lead");
+      fireLeadOnce("speak_with_team");
       trackCustomEvent("AgencyHealthCheck_BookCallChosen", {});
       window.location.href = CTA_HREF;
     },
@@ -185,7 +199,7 @@ export default function AgencyHealthCheckExperience() {
         setStage("leadForm");
         return;
       }
-      trackStandardEvent("Lead");
+      // `Lead` already fired in handleSubmitForReport (once, post-validation).
       trackCustomEvent("AgencyHealthCheck_Completed", { tier: publicResult.tier, score: publicResult.score });
       setStage("results");
     } catch {
@@ -205,6 +219,7 @@ export default function AgencyHealthCheckExperience() {
     setPublicResult(null);
     setLeadError(null);
     pendingLeadRef.current = null;
+    leadEventsFiredRef.current = new Set();
   }, []);
 
   return (

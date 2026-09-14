@@ -95,9 +95,18 @@ Setup:
 
 Failures are logged and never fail the respondent's request. Re-deploy a new Apps Script version after editing the script. To add another destination (CRM, Zapier), extend `forwardToWebhook()` in `lib/leads.ts`.
 
+## Tracking tags
+
+All three base tags render once from `app/layout.tsx` via `next/script` (the App Router equivalent of pasting them into `<head>`), on every page:
+
+- **Meta Pixel** `2351628112024068` — `components/MetaPixel.tsx`, id in `lib/pixel.ts`. Fires `PageView` on load and a `Lead` event once per valid lead-form submission, tagged `content_name: "speak_with_team"` or `"email_report"` so Ads Manager can split the two CTAs. The event fires only after client-side validation passes (see `fireLeadOnce` in `components/AgencyHealthCheckExperience.tsx`), and never twice for the same CTA in one session (a retry after a network error doesn't re-fire).
+- **LinkedIn Insight Tag** partner `8691466` — `components/LinkedInInsight.tsx`, id in `lib/tracking.ts`.
+- **Google tag (Ads)** `AW-17879019755` — `components/GoogleTag.tsx`, id in `lib/tracking.ts`. Only one Google tag may be on the page; add further ids with `gtag('config', ...)` inside that component.
+
+The `<noscript>` fallback pixels are rendered server-side only (`dangerouslySetInnerHTML`); rendering them as JSX makes React also create the `<img>` on the client and double-counts `PageView`.
+
 ## Known placeholders to fill in before launch
 
-- `lib/pixel.ts` — `PIXEL_ID` is blank (Meta Pixel).
 - `lib/copy.ts` — `CTA_HREF` points at a `mailto:` placeholder; swap for the real booking/contact destination (used by both the results-screen CTA and the lead form's "Set Up a Free Strategy Call" button). `COPY.footer.email` is a placeholder company contact address.
 - `lib/email.ts` — `sendAgencyHealthReportEmail()` currently only logs a warning; no email provider is wired up. See the file's header comment for the one-function swap (Resend/Postmark/SendGrid) — `buildReportEmailBody()` already assembles the report text from the same data the results screen used to show inline.
 - `.env.local` — see `.env.example`. `LEAD_WEBHOOK_URL` must be set in production or submissions never reach the sheet.
