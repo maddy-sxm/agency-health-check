@@ -70,15 +70,18 @@ internal_lead_score = round(
 ```
 Classification: 75–100 Tier 1 High Priority · 55–74 Tier 2 Qualified · 35–54 Tier 3 Nurture · 0–34 Tier 4 Low Fit. Exact per-option point mappings live in `lib/questions.ts` (qualification questions) and `lib/types.ts` (`ROLE_OPTIONS`).
 
-## Flow (17 screens)
+## Flow (13 screens)
 
 1. Hero + Q1 services (non-scored, multi-select, personalization only)
 2–9. The 8 scored diagnostic questions, one per screen
 10. "Analyzing" transition (pacing only — scoring is instant and local, this never blocks on a network call)
-11–14. Qualification questions (revenue, marketing spend, agency spend, renewal timing) — framed as benchmarking, not additional quiz questions
-15. Lead capture / report gate (name, work email, work phone, role) — **two CTAs, additive, not alternatives**: "Get My Full Agency Health Report Emailed" (primary) and, below an "or" divider, "Set Up a Free Strategy Call With Our Team" (secondary). **Both always email the full report** (`app/api/lead/route.ts` sends it regardless of which was clicked); "call" additionally skips the on-screen score reveal and heads straight to the booking destination. An earlier version gated the email behind the "report" choice, which read as a confusing either/or — see `LeadFormScreen` / `AgencyHealthCheckExperience`'s `handleSubmitForReport` vs. `handleSubmitForCall`.
-16. "Generating your report" transition (report path only) — this is what actually awaits the `/api/lead` call, via the same fire-then-await-during-the-animation pattern `payment-match-tool` uses for its match request. The "call" path skips this screen entirely and navigates straight to `CTA_HREF`.
-17. Results — **score and tier only**, plus a "your full report is on its way" confirmation naming the submitted email. The full breakdown (pillars, strengths, weaknesses, synthesis) is never rendered on screen; it's assembled server-side for email delivery — see `lib/email.ts`.
+11. Score preview + lead capture (name, work email, work phone, role) — **two CTAs, additive, not alternatives**: "Speak With Our Team About Your Report" (primary) and, below an "or" divider, "Get Your Full Agency Health Report Emailed" (secondary). Both submit the same lead; "call" additionally skips the on-screen confirmation and heads straight to the booking destination — see `handleSubmitForReport` vs. `handleSubmitForCall` in `AgencyHealthCheckExperience`.
+12. "Generating your report" transition (report path only) — this is what actually awaits the `/api/lead` call. The "call" path skips this screen and navigates straight to `CTA_HREF`.
+13. Confirmation — "your full report is on its way", naming the submitted email.
+
+**Removed (2026-09-29): the 4 qualification/benchmark questions** (revenue, marketing spend, agency spend, renewal timing) that used to sit between steps 10 and 11. Their definitions (`QUALIFICATION_QUESTIONS` in `lib/questions.ts`) and the scoring that reads them are still in the codebase; the client now always sends `qualificationAnswers: {}`.
+
+**Consequence for the internal lead score:** those answers carried 65% of its weight (revenue 20%, budget 30%, renewal 15%). With them gone, only role (20%) and agency pain (15%) contribute, so the score tops out at 35 and almost every lead classifies as "Tier 4: Low Fit" (exactly 35 reaches "Tier 3: Nurture"). Until the weights are re-normalised, read `Internal Lead Score` / `Lead Tier` in the sheet as relative ordering only. The sheet's `Monthly Marketing Budget` column is now always blank.
 
 ## Lead data isolation
 

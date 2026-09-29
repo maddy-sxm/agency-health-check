@@ -6,9 +6,9 @@ import { resolveBrowserAttribution } from "@/lib/attribution";
 import { COPY, CTA_HREF } from "@/lib/copy";
 import { trackCustomEvent, trackLead } from "@/lib/pixel";
 import type { LeadContentName } from "@/lib/pixel";
-import { DIAGNOSTIC_QUESTIONS, QUALIFICATION_QUESTIONS } from "@/lib/questions";
+import { DIAGNOSTIC_QUESTIONS } from "@/lib/questions";
 import { computePublicResult } from "@/lib/scoring";
-import type { ContactInfo, DiagnosticAnswers, PublicResult, QualificationAnswers, UtmParams } from "@/lib/types";
+import type { ContactInfo, DiagnosticAnswers, PublicResult, UtmParams } from "@/lib/types";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 import BackgroundMark from "@/components/BackgroundMark";
@@ -24,7 +24,17 @@ import ReportSentScreen from "@/components/screens/ReportSentScreen";
 // gate before it), and "results" now renders ReportSentScreen (a simple
 // post-submission receipt — the respondent already saw the full preview
 // before submitting, so there's nothing left to reveal here).
-type Stage = "hero" | "diagnostic" | "analyzing-diagnostic" | "qualification" | "leadForm" | "generating" | "results";
+//
+// The "qualification" stage (4 firmographic questions — revenue,
+// marketing spend, agency spend, renewal timing) has been removed from
+// this flow. The question definitions and scoring logic that consume
+// them (lib/questions.ts's QUALIFICATION_QUESTIONS, lib/internal-scoring.ts)
+// are left in place, not deleted — qualificationAnswers is now always sent
+// as {}, which those functions already treat as "no answer" (0 points),
+// so nothing crashes. Net effect: the internal SPEEDX lead score loses the
+// revenue/budget/renewal components (65% of its weighting) since that data
+// is no longer collected — see the note where submitLead is defined.
+type Stage = "hero" | "diagnostic" | "analyzing-diagnostic" | "leadForm" | "generating" | "results";
 
 export default function AgencyHealthCheckExperience() {
   const searchParams = useSearchParams();
@@ -33,8 +43,6 @@ export default function AgencyHealthCheckExperience() {
   const [services, setServices] = useState<string[]>([]);
   const [diagnosticStep, setDiagnosticStep] = useState(0);
   const [diagnosticAnswers, setDiagnosticAnswers] = useState<DiagnosticAnswers>({});
-  const [qualificationStep, setQualificationStep] = useState(0);
-  const [qualificationAnswers, setQualificationAnswers] = useState<QualificationAnswers>({});
   const [contact, setContact] = useState<ContactInfo | null>(null);
   const [publicResult, setPublicResult] = useState<PublicResult | null>(null);
   const [leadError, setLeadError] = useState<string | null>(null);
@@ -68,7 +76,7 @@ export default function AgencyHealthCheckExperience() {
 
   useEffect(() => {
     window.scrollTo(0, 0);
-  }, [stage, diagnosticStep, qualificationStep]);
+  }, [stage, diagnosticStep]);
 
   const handleStart = useCallback((selectedServiceIds: string[]) => {
     trackCustomEvent("AgencyHealthCheck_Started", { serviceCount: selectedServiceIds.length });
@@ -104,35 +112,23 @@ export default function AgencyHealthCheckExperience() {
     setDiagnosticStep((i) => i - 1);
   }, [diagnosticStep]);
 
+  // Goes straight to the report preview / lead form — the qualification
+  // stage (4 firmographic questions) has been removed from this flow.
   const handleAnalyzingDiagnosticDone = useCallback(() => {
-    setQualificationStep(0);
-    setStage("qualification");
+    setStage("leadForm");
   }, []);
-
-  const handleAnswerQualification = useCallback(
-    (optionId: string) => {
-      const question = QUALIFICATION_QUESTIONS[qualificationStep];
-      setQualificationAnswers((a) => ({ ...a, [question.id]: optionId }));
-      trackCustomEvent("AgencyHealthCheck_QualificationAnswered", { questionId: question.id, optionId });
-
-      if (qualificationStep < QUALIFICATION_QUESTIONS.length - 1) {
-        setQualificationStep((i) => i + 1);
-        return;
-      }
-      setStage("leadForm");
-    },
-    [qualificationStep]
-  );
-
-  const handleBackQualification = useCallback(() => {
-    if (qualificationStep === 0) return;
-    setQualificationStep((i) => i - 1);
-  }, [qualificationStep]);
 
   // Shared by both lead-form buttons — same payload shape, only `intent`
   // differs. Not awaited by either caller: the "report" path hands the
   // Promise to pendingLeadRef for the generating screen to await later;
   // the "call" path below fires it and moves on immediately.
+  //
+  // qualificationAnswers is always {} now — that data is no longer
+  // collected from the respondent (see the Stage comment above). The API
+  // route and computeInternalLeadScore both already treat a missing answer
+  // as 0 points rather than throwing, so this degrades gracefully: the
+  // internal lead score still computes, it just loses the revenue/budget/
+  // renewal-timing components.
   const submitLead = useCallback(
     (submittedContact: ContactInfo, intent: "report" | "call") =>
       fetch("/api/lead", {
@@ -142,12 +138,12 @@ export default function AgencyHealthCheckExperience() {
           contact: submittedContact,
           services,
           diagnosticAnswers,
-          qualificationAnswers,
+          qualificationAnswers: {},
           intent,
           utm,
         }),
       }),
-    [services, diagnosticAnswers, qualificationAnswers, utm]
+    [services, diagnosticAnswers, utm]
   );
 
   const handleSubmitForReport = useCallback(
@@ -207,8 +203,6 @@ export default function AgencyHealthCheckExperience() {
     setServices([]);
     setDiagnosticStep(0);
     setDiagnosticAnswers({});
-    setQualificationStep(0);
-    setQualificationAnswers({});
     setContact(null);
     setPublicResult(null);
     setLeadError(null);
@@ -243,30 +237,6 @@ export default function AgencyHealthCheckExperience() {
         {stage === "analyzing-diagnostic" && (
           <AnalyzingScreen messages={COPY.analyzing.diagnostic.messages} onDone={handleAnalyzingDiagnosticDone} />
         )}
-
-        {stage === "qualification" &&
-          (() => {
-            const question = QUALIFICATION_QUESTIONS[qualificationStep];
-            return (
-              <div className="w-full">
-                {qualificationStep === 0 && (
-                  <p className="text-center font-mono text-[11px] tracking-[0.15em] uppercase text-smoke mb-6">
-                    {COPY.qualification.intro}
-                  </p>
-                )}
-                <QuestionScreen
-                  key={question.id}
-                  eyebrow={question.eyebrow}
-                  headline={question.headline}
-                  sub={question.sub}
-                  options={question.options}
-                  onSelect={handleAnswerQualification}
-                  onBack={qualificationStep > 0 ? handleBackQualification : undefined}
-                  progress={{ current: qualificationStep + 1, total: QUALIFICATION_QUESTIONS.length }}
-                />
-              </div>
-            );
-          })()}
 
         {stage === "leadForm" && publicResult && (
           <ReportPreviewScreen
