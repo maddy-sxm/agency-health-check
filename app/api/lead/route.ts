@@ -105,6 +105,7 @@ export async function POST(request: Request) {
     publicResult,
     internalLeadScore: internal.score,
     internalClassification: internal.classification,
+    internalScoreBasis: internal.basis,
     intent: data.intent,
     utm: data.utm,
     source: "agency-health-check",

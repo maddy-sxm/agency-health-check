@@ -55,20 +55,17 @@ Rating thresholds: 6 = Strong · 4–5 = Developing · 2–3 = At Risk · 0–1 
 
 **"What This Means" / recommendation** (`lib/scoring.ts` → `composeSynthesis`): template composition keyed by archetype tier plus the lowest (and, for Black Box / Ghost Retainer, second-lowest) pillar. No live generation call.
 
-**Internal SPEEDX Lead Score** (`lib/internal-scoring.ts`):
-```
-budget_score = (marketing_spend_score * 0.40) + (agency_spend_score * 0.60)
-agency_pain_score = 100 - agency_health_score
+**Internal SPEEDX Lead Score** (`lib/internal-scoring.ts`) — a weighted average over the components that have data:
 
-internal_lead_score = round(
-  (company_revenue_score * 0.20) +
-  (budget_score          * 0.30) +
-  (role_score            * 0.20) +
-  (renewal_score         * 0.15) +
-  (agency_pain_score     * 0.15)
-)
-```
-Classification: 75–100 Tier 1 High Priority · 55–74 Tier 2 Qualified · 35–54 Tier 3 Nurture · 0–34 Tier 4 Low Fit. Exact per-option point mappings live in `lib/questions.ts` (qualification questions) and `lib/types.ts` (`ROLE_OPTIONS`).
+| Component | Weight | Source |
+|---|---|---|
+| Company revenue | 0.20 | qualification `revenue` |
+| Budget | 0.30 | marketing spend × 0.40 + agency spend × 0.60 |
+| Role | 0.20 | lead form role |
+| Renewal timing | 0.15 | qualification `renewalTiming` |
+| Agency pain | 0.15 | 100 − true agency health score |
+
+With every component present this is the original formula. A component with no data is dropped and the rest are scaled up proportionally; an answered option worth 0 points still counts as data. Classification: 75–100 Tier 1 High Priority · 55–74 Tier 2 Qualified · 35–54 Tier 3 Nurture · 0–34 Tier 4 Low Fit. Per-option points live in `lib/questions.ts` and `lib/types.ts` (`ROLE_OPTIONS`). Covered by `tests/internal-scoring.test.ts` (`npm test`).
 
 ## Flow (13 screens)
 
@@ -81,7 +78,7 @@ Classification: 75–100 Tier 1 High Priority · 55–74 Tier 2 Qualified · 35�
 
 **Removed (2026-09-29): the 4 qualification/benchmark questions** (revenue, marketing spend, agency spend, renewal timing) that used to sit between steps 10 and 11. Their definitions (`QUALIFICATION_QUESTIONS` in `lib/questions.ts`) and the scoring that reads them are still in the codebase; the client now always sends `qualificationAnswers: {}`.
 
-**Consequence for the internal lead score:** those answers carried 65% of its weight (revenue 20%, budget 30%, renewal 15%). With them gone, only role (20%) and agency pain (15%) contribute, so the score tops out at 35 and almost every lead classifies as "Tier 4: Low Fit" (exactly 35 reaches "Tier 3: Nurture"). Until the weights are re-normalised, read `Internal Lead Score` / `Lead Tier` in the sheet as relative ordering only. The sheet's `Monthly Marketing Budget` column is now always blank.
+**Internal lead score after the removal:** those answers carried 65% of the score's weight. Rather than score missing data as zero (which capped every lead at 35, "Tier 4: Low Fit"), the score is now a weighted average over the components actually collected — today role and agency pain, at their approved 20:15 ratio. Each lead stores `internalScoreBasis` (visible in the sheet's Raw Payload JSON) so a score can be read in context. If the questions return, the original formula applies again automatically. The sheet's `Monthly Marketing Budget` column is blank while they're removed.
 
 ## Lead data isolation
 

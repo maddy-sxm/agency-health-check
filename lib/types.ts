@@ -148,6 +148,10 @@ export interface LeadRecord {
   publicResult: PublicResult;
   internalLeadScore: number;
   internalClassification: string;
+  /** Components the internal score was computed from (see
+   *  lib/internal-scoring.ts) — e.g. ["role", "agencyPain"] when the
+   *  qualification questions weren't asked. */
+  internalScoreBasis?: string[];
   intent: LeadIntent;
   utm: UtmParams;
   source: "agency-health-check";
