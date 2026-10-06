@@ -4,7 +4,7 @@ import { z } from "zod";
 import { saveLead } from "@/lib/leads";
 import { computePublicResult, trueAgencyHealthScore } from "@/lib/scoring";
 import { computeInternalLeadScore } from "@/lib/internal-scoring";
-import { sendAgencyHealthReportEmail } from "@/lib/email";
+import { sendAgencyHealthReportEmail, sendLeadNotificationEmail } from "@/lib/email";
 import { ROLE_OPTIONS } from "@/lib/types";
 import type { DiagnosticAnswers, LeadRecord, QualificationAnswers, RoleId } from "@/lib/types";
 
@@ -113,6 +113,10 @@ export async function POST(request: Request) {
   };
 
   await saveLead(record);
+
+  // Internal "new lead" alert to the SPEEDX team (lib/email.ts). Runs for
+  // both intents; never throws; the lead is already saved above.
+  await sendLeadNotificationEmail(record);
 
   // Fires for BOTH intents — the "report" and "call" CTAs are additive,
   // not alternatives: choosing to book a call doesn't forfeit the emailed

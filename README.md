@@ -109,8 +109,16 @@ The `<noscript>` fallback pixels are rendered server-side only (`dangerouslySetI
 
 `lib/attribution.ts` resolves what a submission is attributed to. Campaign parameters in the current URL (`utm_*`, `gclid`, `fbclid`, `li_fat_id`) always win and are persisted in `localStorage` for 30 days; a later visit that arrives without them (typed the domain, bookmark) falls back to that stored campaign, so return visits keep their source. With neither, the record carries only the external referrer and landing URL. Same-site referrers (reloads) are ignored. Click ids ride along in the `utm` object and land in the sheet's Raw Payload JSON.
 
+## Email (Mailgun)
+
+Two emails per submission, both sent through `lib/mailgun.ts` (plain HTTP API, no SDK) from `app/api/lead/route.ts`:
+
+1. **Internal new-lead alert** — `sendLeadNotificationEmail()` in `lib/email.ts`. Goes to `LEAD_NOTIFY_TO` (comma-separated), defaulting to `spencer@speedxmedia.com` and `leads@speedxmedia.com`. Contains contact details, CTA clicked, public score and archetype, internal lead score and tier, source/UTMs, the full diagnostic breakdown, and a link to the leads sheet. `Reply-To` is the respondent, so replying from the inbox starts the conversation.
+2. **Respondent report** — `sendAgencyHealthReportEmail()`, the full report the confirmation screen promises. `Reply-To` is `COPY.footer.email`.
+
+Env vars: `MAILGUN_API_KEY`, `MAILGUN_DOMAIN`, `MAILGUN_REGION` (`us`/`eu`), `MAIL_FROM`, `LEAD_NOTIFY_TO` — see `.env.example`. With the first two unset, sends are logged no-ops, so previews and local dev never email anyone. Failures are logged and never fail the request. Builders are pure and covered by `tests/email.test.ts`.
+
 ## Known placeholders to fill in before launch
 
 - `lib/copy.ts` — `CTA_HREF` points at a `mailto:` placeholder; swap for the real booking/contact destination (used by both the results-screen CTA and the lead form's "Set Up a Free Strategy Call" button). `COPY.footer.email` is a placeholder company contact address.
-- `lib/email.ts` — `sendAgencyHealthReportEmail()` currently only logs a warning; no email provider is wired up. See the file's header comment for the one-function swap (Resend/Postmark/SendGrid) — `buildReportEmailBody()` already assembles the report text from the same data the results screen used to show inline.
-- `.env.local` — see `.env.example`. `LEAD_WEBHOOK_URL` must be set in production or submissions never reach the sheet.
+- `.env.local` — see `.env.example`. In production `LEAD_WEBHOOK_URL` (sheet) and the `MAILGUN_*` vars (email) must be set.
