@@ -65,10 +65,10 @@ export const COPY = {
     // versions missed one side of that balance: "Set Up a Strategy Call to
     // Review Your Report With Our Team" was clunky/long, and plain "Set Up
     // a Strategy Call" dropped the report/team connection entirely. The
-    // reassurance that the report still gets emailed regardless lives in
+    // reassurance that the results get reviewed on the call lives in
     // bookCallSub below the button.
     bookCallCta: "Speak With Our Team About Your Report",
-    bookCallSub: "You'll still get your full Agency Health Report emailed too.",
+    bookCallSub: "We'll review your results with you on the call.",
     orDivider: "or",
     // Secondary path (outline, shown second) — NOT an alternative to the
     // call. Both buttons always email the report (see
@@ -76,8 +76,8 @@ export const COPY = {
     // reveal instead of heading straight to booking. Both buttons submit
     // the same captured lead — see AgencyHealthCheckExperience's
     // handleSubmitForReport / handleSubmitForCall.
-    cta: "Get Your Full Agency Health Report Emailed",
-    privacyNote: "Used to deliver your report. SPEEDXMEDIA may send relevant strategic follow-up.",
+    cta: "Get My Full Agency Health Report",
+    privacyNote: "Used to follow up on your results. SPEEDXMEDIA may send relevant strategic follow-up.",
   },
 
   results: {
@@ -96,8 +96,8 @@ export const COPY = {
     // Post-submission confirmation (ReportSentScreen) — only reached via
     // the "report" path; "call" redirects straight to CTA_HREF instead.
     // {email} is replaced with the submitted work email.
-    reportSentHeading: "Your Full Report Is On Its Way",
-    reportSentBody: "We've emailed your full Agency Health Report to {email}.",
+    reportSentHeading: "Thanks, We've Got Your Results",
+    reportSentBody: "A SPEEDXMEDIA strategist will review your Agency Health Check and reach out to you at {email} shortly.",
     startOver: "Retake the Assessment",
   },
 

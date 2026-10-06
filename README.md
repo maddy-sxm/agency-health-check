@@ -23,7 +23,7 @@ Unlike the sibling tools, `lib/leads.ts` here does **not** throw if `KV_REST_API
 
 ## The three scores — why they're structurally separate
 
-- **Public — Agency Health Score.** Pure function of the 8 diagnostic answers, computed in `lib/scoring.ts`, hard-capped at 62 (`agencyHealthScore()`). Safe to import from client components; computed instantly client-side for UI responsiveness, then **recomputed server-side** in `app/api/lead/route.ts` from the raw answers before being persisted (never trusts a client-computed score). Only this capped number and its tier ever reach the results screen — the full pillar/strengths/weaknesses/synthesis breakdown is emailed, not displayed (see "Flow" below).
+- **Public — Agency Health Score.** Pure function of the 8 diagnostic answers, computed in `lib/scoring.ts`, hard-capped at 62 (`agencyHealthScore()`). Safe to import from client components; computed instantly client-side for UI responsiveness, then **recomputed server-side** in `app/api/lead/route.ts` from the raw answers before being persisted (never trusts a client-computed score). Only this capped number and its tier ever reach the results screen — the full pillar/strengths/weaknesses/synthesis breakdown goes to the staff alert email, and the respondent sees it partly blurred on screen (see "Flow" below).
 - **True Agency Health Score.** The same formula, uncapped 0-100 (`trueAgencyHealthScore()`). Never shown anywhere in the UI or API response — it exists solely to feed the internal lead score's agency-pain component with an undistorted signal, so a genuinely healthy agency doesn't get flattened to the same "pain" reading as a mediocre one just because the public score can't go above 62.
 - **Internal — SPEEDX Lead Score.** Computed in `lib/internal-scoring.ts`, a module imported **only** by `app/api/lead/route.ts`. No `"use client"` file imports it, anywhere — that's what keeps it out of the client JS bundle and out of any network response the respondent's browser can see, not just out of the UI. `POST /api/lead` returns `{ leadId, result }` where `result` is the public result only.
 
@@ -72,9 +72,9 @@ With every component present this is the original formula. A component with no d
 1. Hero + Q1 services (non-scored, multi-select, personalization only)
 2–9. The 8 scored diagnostic questions, one per screen
 10. "Analyzing" transition (pacing only — scoring is instant and local, this never blocks on a network call)
-11. Score preview + lead capture (name, work email, work phone, role) — **two CTAs, additive, not alternatives**: "Speak With Our Team About Your Report" (primary) and, below an "or" divider, "Get Your Full Agency Health Report Emailed" (secondary). Both submit the same lead; "call" additionally skips the on-screen confirmation and heads straight to the booking destination — see `handleSubmitForReport` vs. `handleSubmitForCall` in `AgencyHealthCheckExperience`.
+11. Score preview + lead capture (name, work email, work phone, role) — **two CTAs, additive, not alternatives**: "Speak With Our Team About Your Report" (primary) and, below an "or" divider, "Get My Full Agency Health Report" (secondary). Both submit the same lead; "call" additionally skips the on-screen confirmation and heads straight to the booking destination — see `handleSubmitForReport` vs. `handleSubmitForCall` in `AgencyHealthCheckExperience`.
 12. "Generating your report" transition (report path only) — this is what actually awaits the `/api/lead` call. The "call" path skips this screen and navigates straight to `CTA_HREF`.
-13. Confirmation — "your full report is on its way", naming the submitted email.
+13. Confirmation — "Thanks, we've got your results", telling them a strategist will reach out at the submitted email. No email is sent to the respondent (see "Email").
 
 **Removed (2026-09-29): the 4 qualification/benchmark questions** (revenue, marketing spend, agency spend, renewal timing) that used to sit between steps 10 and 11. Their definitions (`QUALIFICATION_QUESTIONS` in `lib/questions.ts`) and the scoring that reads them are still in the codebase; the client now always sends `qualificationAnswers: {}`.
 
@@ -114,7 +114,7 @@ The `<noscript>` fallback pixels are rendered server-side only (`dangerouslySetI
 Sent through `lib/mailgun.ts` (plain HTTP API, no SDK) from `app/api/lead/route.ts`, after the lead is saved:
 
 - **Staff new-lead alert** — `sendLeadNotificationEmail()` in `lib/email.ts`, to `LEAD_NOTIFY_TO` (comma-separated; default `spencer@speedxmedia.com, marketing@speedxmedia.com`). Styled like the app; contains contact details, CTA clicked, public score + archetype, internal score + tier, source/UTMs, pillar bars, strengths/gaps, synthesis, and "Reply to <name>" / "Open leads sheet" buttons. `Reply-To` is the respondent.
-- **Respondent report** — `sendAgencyHealthReportEmail()`, **off by default**. Enable with `SEND_RESPONDENT_REPORT=true`. Note: the lead-form CTA ("Get Your Full Agency Health Report Emailed") and the confirmation screen ("We've emailed your full Agency Health Report…") still promise an email — update `lib/copy.ts` if this stays off.
+- **Respondent report** — `sendAgencyHealthReportEmail()`, **off by default**. Enable with `SEND_RESPONDENT_REPORT=true`. The UI copy no longer promises an email (changed 2026-10-05).
 
 Env vars: `MAILGUN_API_KEY`, `MAILGUN_DOMAIN`, `MAILGUN_REGION` (`us`/`eu`), `MAIL_FROM`, `LEAD_NOTIFY_TO`, `SEND_RESPONDENT_REPORT` — see `.env.example`. Without the first two, sends are logged no-ops. Failures are logged and never fail the request. Builders are pure and covered by `tests/email.test.ts`.
 
