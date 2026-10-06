@@ -1,19 +1,21 @@
 /**
- * Outbound email for a completed submission — two messages per lead:
+ * Outbound email for a completed submission.
  *
- *  1. sendLeadNotificationEmail(): the INTERNAL "new lead" alert to the
- *     SPEEDX team (LEAD_NOTIFY_TO, comma-separated; defaults to
- *     DEFAULT_LEAD_NOTIFY_TO). Carries everything sales needs to act,
- *     including the internal score the respondent never sees, and sets
- *     Reply-To to the respondent so a reply goes straight to them.
- *  2. sendAgencyHealthReportEmail(): the respondent's full report — the
- *     pillar breakdown, strengths, gaps, and synthesis the confirmation
- *     screen promises ("We've emailed your full Agency Health Report…").
+ *  - sendLeadNotificationEmail(): the STAFF "new lead" alert — the one email
+ *    that matters. Goes to LEAD_NOTIFY_TO (comma-separated; defaults to
+ *    DEFAULT_LEAD_NOTIFY_TO). Styled like the app (dark ground, coral
+ *    accent, uppercase display type) and carries everything sales needs to
+ *    act: contact details, CTA clicked, public score + archetype, internal
+ *    score + tier, source/UTMs, the full diagnostic breakdown, and one-click
+ *    reply / open-sheet buttons. Reply-To is the respondent.
+ *  - sendAgencyHealthReportEmail(): the respondent's own report. OFF by
+ *    default (product decision 2026-10-05: no client-facing email); enable
+ *    with SEND_RESPONDENT_REPORT=true. Note the UI copy still promises an
+ *    emailed report — see README "Email".
  *
- * Both go through lib/mailgun.ts and are no-ops (with a logged warning)
- * until Mailgun is configured. Neither ever throws: the lead is already in
- * Redis / the Sheet by the time these run, and a mail failure must not fail
- * the respondent's request.
+ * Both go through lib/mailgun.ts and are logged no-ops until Mailgun is
+ * configured. Neither ever throws: the lead is already in Redis / the Sheet
+ * by the time these run, and a mail failure must not fail the request.
  */
 
 import { COPY } from "./copy";
@@ -70,6 +72,7 @@ export function buildReportEmailBody(record: LeadRecord): string {
 }
 
 export async function sendAgencyHealthReportEmail(record: LeadRecord): Promise<boolean> {
+  if ((process.env.SEND_RESPONDENT_REPORT ?? "").trim().toLowerCase() !== "true") return false;
   const firstName = record.contact.name.trim().split(/\s+/)[0] || "there";
   const text = [
     `Hi ${firstName},`,
@@ -89,7 +92,7 @@ export async function sendAgencyHealthReportEmail(record: LeadRecord): Promise<b
 }
 
 /* ------------------------------------------------------------------ */
-/* Internal lead notification                                          */
+/* Staff lead notification                                             */
 /* ------------------------------------------------------------------ */
 
 export interface LeadNotification {
@@ -101,63 +104,225 @@ export interface LeadNotification {
 
 const CTA_LABEL: Record<LeadRecord["intent"], string> = { report: "Report Emailed", call: "Strategy Call" };
 
-/** Pure builder for the internal alert — tested in tests/email.test.ts. */
+/** App palette (tailwind.config.ts) — inline because email clients ignore stylesheets. */
+const C = {
+  ink: "#000000",
+  ink2: "#0d0d0d",
+  ink3: "#171717",
+  line: "#2a2a2a",
+  red: "#d9573b",
+  redBright: "#ff6b4a",
+  bone: "#f5f5f5",
+  smoke: "#8f8f8f",
+  keepBright: "#2ee27f",
+  amberBright: "#ffc266",
+} as const;
+const DISPLAY_FONT = "'Arial Black', 'Archivo', Arial, Helvetica, sans-serif";
+const SANS_FONT = "Inter, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif";
+const MONO_FONT = "'JetBrains Mono', Menlo, Consolas, monospace";
+const LOGO_URL = "https://agency-health-check.speedxmedia.com/speedxmedia-logo.png";
+
+const RATING_COLOR: Record<string, string> = {
+  Strong: C.keepBright,
+  Developing: C.amberBright,
+  "At Risk": C.redBright,
+  Critical: C.redBright,
+};
+
+function eyebrow(text: string, color: string = C.smoke): string {
+  return `<div style="font-family:${MONO_FONT};font-size:11px;letter-spacing:0.2em;text-transform:uppercase;color:${color};">${escapeHtml(text)}</div>`;
+}
+
+function pillarRow(p: LeadRecord["publicResult"]["pillars"][number]): string {
+  const color = RATING_COLOR[p.rating] ?? C.smoke;
+  const cells = Array.from({ length: 6 }, (_, i) =>
+    `<td style="height:6px;background:${i < p.rawScore ? color : C.line};border-radius:3px;${i < 5 ? "padding-right:3px;" : ""}"></td>`
+  ).join("");
+  return `
+    <tr><td style="padding:14px 0;border-top:1px solid ${C.line};">
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr>
+        <td style="font-family:${SANS_FONT};font-size:14px;font-weight:600;color:${C.bone};">${escapeHtml(p.label)}</td>
+        <td align="right" style="font-family:${MONO_FONT};font-size:11px;letter-spacing:0.08em;text-transform:uppercase;color:${color};white-space:nowrap;">${escapeHtml(p.rating)} &nbsp;<span style="color:${C.smoke};">${p.rawScore}/6</span></td>
+      </tr></table>
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-top:8px;border-collapse:separate;"><tr>${cells}</tr></table>
+    </td></tr>`;
+}
+
+function listRows(items: { phrase: string }[], marker: string, color: string): string {
+  return items
+    .map(
+      (s) => `<tr><td style="padding:6px 0;font-family:${SANS_FONT};font-size:14px;line-height:1.5;color:${C.bone};">
+        <span style="color:${color};font-weight:700;">${marker}</span>&nbsp; ${escapeHtml(s.phrase)}</td></tr>`
+    )
+    .join("");
+}
+
+function button(href: string, label: string, filled: boolean): string {
+  const style = filled
+    ? `background:${C.red};color:#ffffff;border:2px solid ${C.red};`
+    : `background:transparent;color:${C.bone};border:2px solid ${C.line};`;
+  return `<a href="${escapeHtml(href)}" style="display:inline-block;padding:12px 22px;border-radius:7px;font-family:${SANS_FONT};font-size:13px;font-weight:600;letter-spacing:0.04em;text-transform:uppercase;text-decoration:none;${style}">${escapeHtml(label)}</a>`;
+}
+
+function kv(label: string, value: string, href?: string): string {
+  const v = href ? `<a href="${escapeHtml(href)}" style="color:${C.bone};text-decoration:underline;">${escapeHtml(value)}</a>` : escapeHtml(value);
+  return `<tr>
+    <td style="padding:6px 12px 6px 0;font-family:${MONO_FONT};font-size:11px;letter-spacing:0.08em;text-transform:uppercase;color:${C.smoke};white-space:nowrap;vertical-align:top;">${escapeHtml(label)}</td>
+    <td style="padding:6px 0;font-family:${SANS_FONT};font-size:14px;color:${C.bone};">${v}</td>
+  </tr>`;
+}
+
+/** Pure builder for the staff alert — tested in tests/email.test.ts. */
 export function buildLeadNotification(record: LeadRecord): LeadNotification {
   const { contact, publicResult: r } = record;
-  const marketingSpend = QUALIFICATION_QUESTIONS.find((q) => q.id === "marketingSpend");
   const cta = CTA_LABEL[record.intent];
+  const roleLabel = label(ROLE_OPTIONS, contact.role);
+  const services = record.services.map((id) => label(SERVICE_OPTIONS, id)).join(", ") || "(none selected)";
+  const marketingSpend = label(QUALIFICATION_QUESTIONS.find((q) => q.id === "marketingSpend")?.options ?? [], record.qualificationAnswers.marketingSpend);
+  const source = [record.utm.utm_source, record.utm.utm_medium, record.utm.utm_campaign].filter(Boolean).join(" / ") || "direct / organic";
   const lowest = [...r.pillars].sort((a, b) => a.rawScore - b.rawScore)[0];
+  const firstName = contact.name.trim().split(/\s+/)[0] || "them";
+  const when = new Date(record.createdAt);
+  const whenLabel = Number.isNaN(when.getTime())
+    ? record.createdAt
+    : when.toLocaleString("en-US", { timeZone: "America/New_York", month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit", timeZoneName: "short" });
+  const replyHref = `mailto:${contact.email}?subject=${encodeURIComponent("Your Agency Health Check results — SPEEDXMEDIA")}`;
+  const preheader = `${roleLabel} · ${record.internalClassification} · ${cta} · Agency score ${r.score}, ${r.tierLabel}`;
 
   const rows: Array<[string, string]> = [
     ["Name", contact.name],
     ["Email", contact.email],
     ["Phone", contact.phone],
-    ["Role", label(ROLE_OPTIONS, contact.role)],
-    ["Services their agency provides", record.services.map((id) => label(SERVICE_OPTIONS, id)).join(", ") || "(none selected)"],
-    ["Monthly marketing budget", label(marketingSpend?.options ?? [], record.qualificationAnswers.marketingSpend) || "(not asked)"],
+    ["Role", roleLabel],
+    ["Their agency provides", services],
+    ...(marketingSpend ? [["Monthly marketing budget", marketingSpend] as [string, string]] : []),
     ["CTA clicked", cta],
     ["Agency Health Score (shown to them)", `${r.score} / 100 — ${r.tierLabel}`],
     ["Internal lead score", `${record.internalLeadScore} — ${record.internalClassification}`],
     ["Lowest pillar", lowest ? `${lowest.label} (${lowest.rawScore}/6, ${lowest.rating})` : ""],
-    ["Source", [record.utm.utm_source, record.utm.utm_medium, record.utm.utm_campaign].filter(Boolean).join(" / ") || "direct / organic"],
+    ["Source", source],
     ["Referrer", record.utm.referrer || ""],
     ["Landing page", record.utm.landingUrl || ""],
-    ["Submitted", record.createdAt],
+    ["Submitted", whenLabel],
     ["Submission ID", record.leadId],
   ];
 
   const text = [
-    `New Agency Health Check lead — ${cta}`,
+    `NEW LEAD — Agency Health Check (${cta})`,
     "",
     ...rows.filter(([, v]) => v).map(([k, v]) => `${k}: ${v}`),
     "",
-    "Diagnostic breakdown (what the report says):",
+    "Diagnostic breakdown:",
     buildReportEmailBody(record),
     "",
+    `Reply to ${firstName}: ${contact.email}`,
     `All leads: ${LEADS_SHEET_URL}`,
   ].join("\n");
 
-  const html = [
-    `<h2 style="margin:0 0 12px">New Agency Health Check lead — ${escapeHtml(cta)}</h2>`,
-    `<table cellpadding="6" style="border-collapse:collapse;font-family:Arial,sans-serif;font-size:14px">`,
-    ...rows
-      .filter(([, v]) => v)
-      .map(([k, v]) => `<tr><td style="color:#666;white-space:nowrap;vertical-align:top">${escapeHtml(k)}</td><td><strong>${escapeHtml(v)}</strong></td></tr>`),
-    `</table>`,
-    `<h3 style="margin:20px 0 8px">Diagnostic breakdown</h3>`,
-    `<pre style="font-family:Arial,sans-serif;font-size:14px;white-space:pre-wrap">${escapeHtml(buildReportEmailBody(record))}</pre>`,
-    `<p><a href="${LEADS_SHEET_URL}">Open the leads sheet</a></p>`,
-  ].join("\n");
+  const html = `<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="dark"><meta name="supported-color-schemes" content="dark"><title>${escapeHtml(`New lead: ${contact.name}`)}</title></head>
+<body style="margin:0;padding:0;background:${C.ink};">
+<div style="display:none;max-height:0;overflow:hidden;opacity:0;color:${C.ink};">${escapeHtml(preheader)}</div>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:${C.ink};"><tr><td align="center" style="padding:32px 16px;">
+<table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0" style="max-width:600px;width:100%;background:${C.ink2};border:1px solid ${C.line};border-radius:14px;">
+
+  <tr><td align="center" style="padding:22px 24px;border-bottom:1px solid ${C.line};">
+    <img src="${LOGO_URL}" alt="SPEEDXMEDIA" width="150" style="display:block;width:150px;height:auto;border:0;">
+  </td></tr>
+
+  <tr><td style="padding:28px 28px 8px;">
+    ${eyebrow("New lead · Agency Health Check", C.red)}
+    <div style="margin-top:10px;font-family:${DISPLAY_FONT};font-size:30px;line-height:1.05;font-weight:900;text-transform:uppercase;color:${C.bone};">${escapeHtml(contact.name)}</div>
+    <div style="margin-top:8px;font-family:${SANS_FONT};font-size:15px;color:${C.smoke};">${escapeHtml(roleLabel)}</div>
+    <div style="margin-top:14px;">
+      <span style="display:inline-block;padding:6px 12px;border:1px solid ${C.red};border-radius:999px;background:rgba(217,87,59,0.12);font-family:${MONO_FONT};font-size:11px;letter-spacing:0.12em;text-transform:uppercase;color:${C.redBright};">${escapeHtml(cta)}</span>
+      <span style="display:inline-block;padding:6px 12px;border:1px solid ${C.line};border-radius:999px;font-family:${MONO_FONT};font-size:11px;letter-spacing:0.12em;text-transform:uppercase;color:${C.bone};">${escapeHtml(record.internalClassification)}</span>
+    </div>
+  </td></tr>
+
+  <tr><td style="padding:16px 28px 0;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr>
+      <td width="50%" style="padding:16px;background:${C.ink};border:1px solid ${C.line};border-radius:12px;">
+        ${eyebrow("Internal lead score")}
+        <div style="margin-top:6px;font-family:${DISPLAY_FONT};font-size:36px;line-height:1;font-weight:900;color:${C.redBright};">${record.internalLeadScore}<span style="font-size:14px;color:${C.smoke};">/100</span></div>
+        <div style="margin-top:6px;font-family:${SANS_FONT};font-size:13px;color:${C.bone};">${escapeHtml(record.internalClassification)}</div>
+      </td>
+      <td width="12"></td>
+      <td width="50%" style="padding:16px;background:${C.ink};border:1px solid ${C.line};border-radius:12px;">
+        ${eyebrow("Agency score they saw")}
+        <div style="margin-top:6px;font-family:${DISPLAY_FONT};font-size:36px;line-height:1;font-weight:900;color:${C.bone};">${r.score}<span style="font-size:14px;color:${C.smoke};">/100</span></div>
+        <div style="margin-top:6px;font-family:${SANS_FONT};font-size:13px;color:${C.bone};text-transform:uppercase;">${escapeHtml(r.tierLabel)}</div>
+      </td>
+    </tr></table>
+  </td></tr>
+
+  <tr><td style="padding:24px 28px 0;">
+    ${button(replyHref, `Reply to ${firstName}`, true)}&nbsp;&nbsp;${button(LEADS_SHEET_URL, "Open leads sheet", false)}
+  </td></tr>
+
+  <tr><td style="padding:28px 28px 0;">
+    ${eyebrow("Contact & context")}
+    <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin-top:10px;">
+      ${kv("Email", contact.email, `mailto:${contact.email}`)}
+      ${kv("Phone", contact.phone, `tel:${contact.phone.replace(/[^+\d]/g, "")}`)}
+      ${kv("Agency provides", services)}
+      ${marketingSpend ? kv("Marketing budget", marketingSpend) : ""}
+      ${kv("Source", source)}
+      ${record.utm.referrer ? kv("Referrer", record.utm.referrer) : ""}
+      ${kv("Submitted", whenLabel)}
+    </table>
+  </td></tr>
+
+  <tr><td style="padding:28px 28px 0;">
+    ${eyebrow("Diagnostic pillars")}
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-top:6px;">
+      ${r.pillars.map(pillarRow).join("")}
+    </table>
+  </td></tr>
+
+  ${
+    r.strengthsHeading
+      ? `<tr><td style="padding:24px 28px 0;">${eyebrow(r.strengthsHeading, C.keepBright)}
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-top:6px;">${listRows(r.strengths, "✓", C.keepBright)}</table></td></tr>`
+      : ""
+  }
+  ${
+    r.weaknessesHeading
+      ? `<tr><td style="padding:20px 28px 0;">${eyebrow(r.weaknessesHeading, C.redBright)}
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-top:6px;">${listRows(r.weaknesses, "●", C.redBright)}</table></td></tr>`
+      : ""
+  }
+
+  <tr><td style="padding:24px 28px 0;">
+    ${eyebrow(COPY.results.whatThisMeansHeading)}
+    <p style="margin:8px 0 0;font-family:${SANS_FONT};font-size:14px;line-height:1.6;color:${C.bone};">${escapeHtml(r.synthesis.whatThisMeans)}</p>
+  </td></tr>
+  <tr><td style="padding:20px 28px 0;">
+    ${eyebrow(COPY.results.recommendationHeading)}
+    <p style="margin:8px 0 0;font-family:${SANS_FONT};font-size:14px;line-height:1.6;color:${C.bone};">${escapeHtml(r.synthesis.recommendation)}</p>
+  </td></tr>
+
+  <tr><td style="padding:28px 28px 24px;">
+    <div style="border-top:1px solid ${C.line};padding-top:16px;font-family:${MONO_FONT};font-size:10px;line-height:1.7;letter-spacing:0.04em;color:${C.smoke};">
+      Submission ${escapeHtml(record.leadId)}<br>
+      ${record.utm.landingUrl ? `Landing page: ${escapeHtml(record.utm.landingUrl)}<br>` : ""}
+      Sent by the Agency Health Check tool · replies go to the lead
+    </div>
+  </td></tr>
+
+</table>
+</td></tr></table>
+</body></html>`;
 
   return {
-    subject: `New Agency Health Check lead: ${contact.name} — ${record.internalClassification} (${cta})`,
+    subject: `New lead: ${contact.name} (${roleLabel}) — ${record.internalClassification} · ${cta}`,
     text,
     html,
     replyTo: contact.email,
   };
 }
 
-/** Internal alert to the SPEEDX team. Recipients: LEAD_NOTIFY_TO env, else DEFAULT_LEAD_NOTIFY_TO. */
+/** Staff alert. Recipients: LEAD_NOTIFY_TO env, else DEFAULT_LEAD_NOTIFY_TO. */
 export async function sendLeadNotificationEmail(record: LeadRecord): Promise<boolean> {
   const to = parseRecipientList(process.env.LEAD_NOTIFY_TO);
   const recipients = to.length ? to : DEFAULT_LEAD_NOTIFY_TO;

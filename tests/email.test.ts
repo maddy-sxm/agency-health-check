@@ -54,7 +54,7 @@ test("mailgun request: basic auth + form fields, multiple recipients, reply-to",
 
 test("lead notification: subject + key fields + reply-to the respondent", () => {
   const n = buildLeadNotification(record);
-  assert.equal(n.subject, "New Agency Health Check lead: Jane Doe — Tier 1: High Priority (Strategy Call)");
+  assert.equal(n.subject, "New lead: Jane Doe (CMO / Chief Growth Officer / Marketing Executive) — Tier 1: High Priority · Strategy Call");
   assert.equal(n.replyTo, "jane@acme.com");
   for (const needle of ["Jane Doe", "jane@acme.com", "(555) 010-2026", "CMO / Chief Growth Officer / Marketing Executive", "Paid Media, SEO", "42", "The Black Box", "82", "Tier 1: High Priority", "Strategy Call", "linkedin", "q4", "lead-123"]) {
     assert.ok(n.text.includes(needle), "text missing " + needle);
@@ -62,6 +62,16 @@ test("lead notification: subject + key fields + reply-to the respondent", () => 
   }
   assert.ok(n.text.includes("Where It Breaks Down"), "includes the diagnostic breakdown");
   assert.ok(n.html.includes("docs.google.com/spreadsheets/d/1OJRt-0Ua6n_9OrGa9R-TlSp4KofjDi4QndZJJZm2X88"), "links the sheet");
+});
+
+test("lead notification html carries the app's dark palette and pillar bars", () => {
+  const n = buildLeadNotification(record);
+  assert.ok(n.html.includes("#d9573b"), "coral accent");
+  assert.ok(n.html.includes("background:#000000"), "ink ground");
+  assert.ok(n.html.includes("speedxmedia-logo.png"), "logo");
+  assert.ok(n.html.includes("Communication &amp; Access"), "pillar labels");
+  assert.ok(n.html.includes("mailto:jane@acme.com"), "reply button");
+  assert.ok(n.html.includes("<!DOCTYPE html>"));
 });
 
 test("lead notification escapes HTML in respondent-supplied fields", () => {
