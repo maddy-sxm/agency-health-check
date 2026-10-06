@@ -113,7 +113,7 @@ The `<noscript>` fallback pixels are rendered server-side only (`dangerouslySetI
 
 Sent through `lib/mailgun.ts` (plain HTTP API, no SDK) from `app/api/lead/route.ts`, after the lead is saved:
 
-- **Staff new-lead alert** — `sendLeadNotificationEmail()` in `lib/email.ts`, to `LEAD_NOTIFY_TO` (comma-separated; default `spencer@speedxmedia.com, leads@speedxmedia.com`). Styled like the app; contains contact details, CTA clicked, public score + archetype, internal score + tier, source/UTMs, pillar bars, strengths/gaps, synthesis, and "Reply to <name>" / "Open leads sheet" buttons. `Reply-To` is the respondent.
+- **Staff new-lead alert** — `sendLeadNotificationEmail()` in `lib/email.ts`, to `LEAD_NOTIFY_TO` (comma-separated; default `spencer@speedxmedia.com, marketing@speedxmedia.com`). Styled like the app; contains contact details, CTA clicked, public score + archetype, internal score + tier, source/UTMs, pillar bars, strengths/gaps, synthesis, and "Reply to <name>" / "Open leads sheet" buttons. `Reply-To` is the respondent.
 - **Respondent report** — `sendAgencyHealthReportEmail()`, **off by default**. Enable with `SEND_RESPONDENT_REPORT=true`. Note: the lead-form CTA ("Get Your Full Agency Health Report Emailed") and the confirmation screen ("We've emailed your full Agency Health Report…") still promise an email — update `lib/copy.ts` if this stays off.
 
 Env vars: `MAILGUN_API_KEY`, `MAILGUN_DOMAIN`, `MAILGUN_REGION` (`us`/`eu`), `MAIL_FROM`, `LEAD_NOTIFY_TO`, `SEND_RESPONDENT_REPORT` — see `.env.example`. Without the first two, sends are logged no-ops. Failures are logged and never fail the request. Builders are pure and covered by `tests/email.test.ts`.

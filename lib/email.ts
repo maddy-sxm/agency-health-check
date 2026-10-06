@@ -25,7 +25,7 @@ import { ROLE_OPTIONS } from "./types";
 import type { LeadRecord } from "./types";
 
 /** Who gets the internal alert when LEAD_NOTIFY_TO isn't set. */
-export const DEFAULT_LEAD_NOTIFY_TO = ["spencer@speedxmedia.com", "leads@speedxmedia.com"];
+export const DEFAULT_LEAD_NOTIFY_TO = ["spencer@speedxmedia.com", "marketing@speedxmedia.com"];
 
 const LEADS_SHEET_URL = "https://docs.google.com/spreadsheets/d/1OJRt-0Ua6n_9OrGa9R-TlSp4KofjDi4QndZJJZm2X88/edit";
 
