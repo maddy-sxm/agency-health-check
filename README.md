@@ -111,12 +111,12 @@ The `<noscript>` fallback pixels are rendered server-side only (`dangerouslySetI
 
 ## Email (Mailgun)
 
-Two emails per submission, both sent through `lib/mailgun.ts` (plain HTTP API, no SDK) from `app/api/lead/route.ts`:
+Sent through `lib/mailgun.ts` (plain HTTP API, no SDK) from `app/api/lead/route.ts`, after the lead is saved:
 
-1. **Internal new-lead alert** — `sendLeadNotificationEmail()` in `lib/email.ts`. Goes to `LEAD_NOTIFY_TO` (comma-separated), defaulting to `spencer@speedxmedia.com` and `leads@speedxmedia.com`. Contains contact details, CTA clicked, public score and archetype, internal lead score and tier, source/UTMs, the full diagnostic breakdown, and a link to the leads sheet. `Reply-To` is the respondent, so replying from the inbox starts the conversation.
-2. **Respondent report** — `sendAgencyHealthReportEmail()`, the full report the confirmation screen promises. `Reply-To` is `COPY.footer.email`.
+- **Staff new-lead alert** — `sendLeadNotificationEmail()` in `lib/email.ts`, to `LEAD_NOTIFY_TO` (comma-separated; default `spencer@speedxmedia.com, leads@speedxmedia.com`). Styled like the app; contains contact details, CTA clicked, public score + archetype, internal score + tier, source/UTMs, pillar bars, strengths/gaps, synthesis, and "Reply to <name>" / "Open leads sheet" buttons. `Reply-To` is the respondent.
+- **Respondent report** — `sendAgencyHealthReportEmail()`, **off by default**. Enable with `SEND_RESPONDENT_REPORT=true`. Note: the lead-form CTA ("Get Your Full Agency Health Report Emailed") and the confirmation screen ("We've emailed your full Agency Health Report…") still promise an email — update `lib/copy.ts` if this stays off.
 
-Env vars: `MAILGUN_API_KEY`, `MAILGUN_DOMAIN`, `MAILGUN_REGION` (`us`/`eu`), `MAIL_FROM`, `LEAD_NOTIFY_TO` — see `.env.example`. With the first two unset, sends are logged no-ops, so previews and local dev never email anyone. Failures are logged and never fail the request. Builders are pure and covered by `tests/email.test.ts`.
+Env vars: `MAILGUN_API_KEY`, `MAILGUN_DOMAIN`, `MAILGUN_REGION` (`us`/`eu`), `MAIL_FROM`, `LEAD_NOTIFY_TO`, `SEND_RESPONDENT_REPORT` — see `.env.example`. Without the first two, sends are logged no-ops. Failures are logged and never fail the request. Builders are pure and covered by `tests/email.test.ts`.
 
 ## Known placeholders to fill in before launch
 
