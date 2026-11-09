@@ -14,14 +14,18 @@
  *  - The window is short (5 min): long enough to absorb re-clicks and
  *    reloads, short enough that a planted marker can't suppress a real
  *    lead for long.
- *  - The marker is a *reservation*: callers release it if delivery fails,
- *    so a failed Sheet write never leaves a lead silently undelivered.
+ *  - The marker is a *reservation*: if delivery fails, callers shrink its
+ *    TTL to RETRY_GRACE_SECONDS so a genuine retry gets through soon, while
+ *    a requester can't reset the window at will (it is never deleted, and
+ *    only a real transport failure shortens it — "not configured" doesn't).
  *  - Fails open: with no Redis, or if Redis errors, nothing is a duplicate.
  */
 
 import { createHash } from "node:crypto";
 
 export const DEDUPE_WINDOW_SECONDS = 5 * 60;
+/** TTL applied to a reservation whose delivery failed. */
+export const RETRY_GRACE_SECONDS = 30;
 
 export interface DedupeInput {
   email: string;
@@ -32,7 +36,7 @@ export interface DedupeInput {
 /** Minimal slice of the Upstash client we need — injectable for tests. */
 export interface DedupeClient {
   set(key: string, value: string, opts: { nx: true; ex: number }): Promise<string | null>;
-  del(key: string): Promise<number>;
+  expire(key: string, seconds: number): Promise<number>;
 }
 
 export function duplicateKey(input: DedupeInput): string {
@@ -57,12 +61,12 @@ export async function isDuplicateSubmission(input: DedupeInput, client: DedupeCl
   }
 }
 
-/** Give the reservation back so a retry can deliver (used when delivery failed). */
-export async function releaseDuplicateReservation(input: DedupeInput, client: DedupeClient | null): Promise<void> {
+/** Delivery failed: shorten the reservation so a retry can deliver soon. */
+export async function shortenDuplicateReservation(input: DedupeInput, client: DedupeClient | null): Promise<void> {
   if (!client) return;
   try {
-    await client.del(duplicateKey(input));
+    await client.expire(duplicateKey(input), RETRY_GRACE_SECONDS);
   } catch (err) {
-    console.error("[agency-health-check] dedupe release failed:", err);
+    console.error("[agency-health-check] dedupe shorten failed:", err);
   }
 }

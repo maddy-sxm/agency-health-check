@@ -30,7 +30,7 @@
  */
 
 import { Redis } from "@upstash/redis";
-import { isDuplicateSubmission, releaseDuplicateReservation } from "./dedupe";
+import { isDuplicateSubmission, shortenDuplicateReservation } from "./dedupe";
 import { forwardLeadToSheet } from "./sheets-webhook";
 import type { LeadRecord } from "./types";
 
@@ -95,9 +95,10 @@ export async function saveLead(record: LeadRecord): Promise<{ duplicate: boolean
   }
 
   const delivered = await forwardToWebhook(record);
-  if (!delivered) {
-    // Don't let a failed Sheet write hide the next attempt behind the dedupe window.
-    await releaseDuplicateReservation(identity, client);
+  if (!delivered && process.env.LEAD_WEBHOOK_URL) {
+    // A real transport failure (not "webhook unconfigured"): shorten the
+    // reservation so the next attempt isn't hidden for the full window.
+    await shortenDuplicateReservation(identity, client);
   }
   return { duplicate: false };
 }

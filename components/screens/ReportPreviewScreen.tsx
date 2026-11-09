@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { COPY } from "@/lib/copy";
 import { PILLARS } from "@/lib/pillars";
 import ScoreRing from "@/components/ScoreRing";
@@ -52,6 +52,9 @@ export default function ReportPreviewScreen({ result, onSubmitReport, onSubmitCa
   // without navigating away), and before this guard a respondent clicking
   // repeatedly produced one row + one staff email per click.
   const [submitted, setSubmitted] = useState(false);
+  // Synchronous twin of `submitted`: state updates flush asynchronously, so
+  // two clicks landing in the same tick would both see submitted === false.
+  const submittedRef = useRef(false);
 
   const error = validationError ?? externalError;
 
@@ -72,20 +75,23 @@ export default function ReportPreviewScreen({ result, onSubmitReport, onSubmitCa
     return { name: name.trim(), email: email.trim(), phone: phone.trim(), role };
   };
 
-  const handleSubmitCall = () => {
-    if (submitted) return;
+  const claimSubmission = (): ContactInfo | null => {
+    if (submittedRef.current) return null;
     const contact = validate();
-    if (!contact) return;
+    if (!contact) return null;
+    submittedRef.current = true;
     setSubmitted(true);
-    onSubmitCall(contact);
+    return contact;
+  };
+
+  const handleSubmitCall = () => {
+    const contact = claimSubmission();
+    if (contact) onSubmitCall(contact);
   };
 
   const handleSubmitReport = () => {
-    if (submitted) return;
-    const contact = validate();
-    if (!contact) return;
-    setSubmitted(true);
-    onSubmitReport(contact);
+    const contact = claimSubmission();
+    if (contact) onSubmitReport(contact);
   };
 
   return (

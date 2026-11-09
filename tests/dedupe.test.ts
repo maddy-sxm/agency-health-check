@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { DEDUPE_WINDOW_SECONDS, duplicateKey, isDuplicateSubmission, releaseDuplicateReservation } from "../lib/dedupe";
+import { DEDUPE_WINDOW_SECONDS, RETRY_GRACE_SECONDS, duplicateKey, isDuplicateSubmission, shortenDuplicateReservation } from "../lib/dedupe";
 
 const base = { email: "Jane@Acme.com ", phone: "(555) 010-2026", intent: "call" as const };
 
@@ -23,16 +23,17 @@ test("first submission is not a duplicate, an identical repeat within the window
       store.set(key, opts.ex);
       return "OK";
     },
-    del: async (key: string) => (store.delete(key) ? 1 : 0),
+    expire: async (key: string, seconds: number) => { if (!store.has(key)) return 0; store.set(key, seconds); return 1; },
   };
   assert.equal(await isDuplicateSubmission(base, client), false);
   assert.equal(await isDuplicateSubmission(base, client), true);
   assert.equal(await isDuplicateSubmission({ ...base, intent: "report" }, client), false);
   assert.equal(store.get(duplicateKey(base)), DEDUPE_WINDOW_SECONDS);
   assert.equal(DEDUPE_WINDOW_SECONDS, 5 * 60, "short window");
-  // releasing the reservation (delivery failed) lets the next attempt through
-  await releaseDuplicateReservation(base, client);
-  assert.equal(await isDuplicateSubmission(base, client), false);
+  // a failed delivery shortens the reservation rather than deleting it
+  await shortenDuplicateReservation(base, client);
+  assert.equal(store.get(duplicateKey(base)), RETRY_GRACE_SECONDS);
+  assert.equal(await isDuplicateSubmission(base, client), true, "still reserved until the grace period lapses");
 });
 
 test("without Redis nothing is ever treated as a duplicate", async () => {
@@ -40,7 +41,7 @@ test("without Redis nothing is ever treated as a duplicate", async () => {
 });
 
 test("a Redis error fails open (not a duplicate)", async () => {
-  const client = { set: async () => { throw new Error("down"); }, del: async () => { throw new Error("down"); } };
+  const client = { set: async () => { throw new Error("down"); }, expire: async () => { throw new Error("down"); } };
   assert.equal(await isDuplicateSubmission(base, client), false);
-  await releaseDuplicateReservation(base, client); // must not throw
+  await shortenDuplicateReservation(base, client); // must not throw
 });

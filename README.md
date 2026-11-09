@@ -85,7 +85,7 @@ With every component present this is the original formula. A component with no d
 Two guards, both added 2026-11-09 after one respondent produced eight rows and eight staff emails by re-clicking:
 
 1. **Client** — `ReportPreviewScreen` disables both CTAs (label "Request received") after the first valid submit. Matters most on the "call" path, where the `mailto:` link opens the mail client without leaving the page.
-2. **Server** — `lib/dedupe.ts` reserves a SHA-256 of (email, phone, CTA) in Redis for 5 minutes; a repeat inside that window is still stored in Redis but is not forwarded to the Sheet or emailed. The reservation is released if the Sheet write fails, so a delivery failure never hides the next attempt. No PII in key names. Fails open without Redis. Tested in `tests/dedupe.test.ts`.
+2. **Server** — `lib/dedupe.ts` reserves a SHA-256 of (email, phone, CTA) in Redis for 5 minutes; a repeat inside that window is still stored in Redis but is not forwarded to the Sheet or emailed. If the Sheet write fails (a real transport error, not "webhook unconfigured") the reservation is shortened to 30 seconds so a retry gets through soon; it is never deleted on request. No PII in key names. Fails open without Redis. Tested in `tests/dedupe.test.ts`.
 
 ## Lead data isolation
 
