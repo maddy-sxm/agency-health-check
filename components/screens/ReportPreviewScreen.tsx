@@ -46,6 +46,12 @@ export default function ReportPreviewScreen({ result, onSubmitReport, onSubmitCa
   const [phone, setPhone] = useState("");
   const [role, setRole] = useState<RoleId | "">("");
   const [validationError, setValidationError] = useState<string | null>(null);
+  // Set once a valid submission has been handed to the parent. Disables both
+  // CTAs so a second click can't create a duplicate lead — this screen stays
+  // mounted on the "call" path (the mailto: link opens the mail client
+  // without navigating away), and before this guard a respondent clicking
+  // repeatedly produced one row + one staff email per click.
+  const [submitted, setSubmitted] = useState(false);
 
   const error = validationError ?? externalError;
 
@@ -67,13 +73,19 @@ export default function ReportPreviewScreen({ result, onSubmitReport, onSubmitCa
   };
 
   const handleSubmitCall = () => {
+    if (submitted) return;
     const contact = validate();
-    if (contact) onSubmitCall(contact);
+    if (!contact) return;
+    setSubmitted(true);
+    onSubmitCall(contact);
   };
 
   const handleSubmitReport = () => {
+    if (submitted) return;
     const contact = validate();
-    if (contact) onSubmitReport(contact);
+    if (!contact) return;
+    setSubmitted(true);
+    onSubmitReport(contact);
   };
 
   return (
@@ -236,9 +248,10 @@ export default function ReportPreviewScreen({ result, onSubmitReport, onSubmitCa
 
         <button
           onClick={handleSubmitCall}
-          className="w-full mt-4 bg-red hover:bg-red-bright text-white font-sans font-semibold text-sm tracking-wide uppercase py-3.5 rounded-[7px] transition-colors"
+          disabled={submitted}
+          className="w-full mt-4 bg-red hover:bg-red-bright disabled:bg-ink-3 disabled:text-smoke disabled:cursor-default text-white font-sans font-semibold text-sm tracking-wide uppercase py-3.5 rounded-[7px] transition-colors"
         >
-          {COPY.leadGate.bookCallCta} →
+          {submitted ? COPY.leadGate.submittedLabel : `${COPY.leadGate.bookCallCta} →`}
         </button>
         <p className="mt-2 text-[11px] text-bone/70 text-center">{COPY.leadGate.bookCallSub}</p>
 
@@ -250,9 +263,10 @@ export default function ReportPreviewScreen({ result, onSubmitReport, onSubmitCa
 
         <button
           onClick={handleSubmitReport}
-          className="w-full bg-transparent border-2 border-line hover:border-red text-bone font-sans font-semibold text-sm tracking-wide uppercase py-3.5 rounded-[7px] transition-colors"
+          disabled={submitted}
+          className="w-full bg-transparent border-2 border-line hover:border-red disabled:hover:border-line disabled:text-smoke disabled:cursor-default text-bone font-sans font-semibold text-sm tracking-wide uppercase py-3.5 rounded-[7px] transition-colors"
         >
-          {COPY.leadGate.cta} →
+          {submitted ? COPY.leadGate.submittedLabel : `${COPY.leadGate.cta} →`}
         </button>
 
         <p className="mt-3 text-[11px] text-smoke/70 text-center">{COPY.leadGate.privacyNote}</p>

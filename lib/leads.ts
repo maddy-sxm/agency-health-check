@@ -30,6 +30,7 @@
  */
 
 import { Redis } from "@upstash/redis";
+import { isDuplicateSubmission } from "./dedupe";
 import { forwardLeadToSheet } from "./sheets-webhook";
 import type { LeadRecord } from "./types";
 
@@ -62,7 +63,13 @@ async function forwardToWebhook(record: LeadRecord): Promise<void> {
   await forwardLeadToSheet(record);
 }
 
-export async function saveLead(record: LeadRecord): Promise<void> {
+/**
+ * Persist the lead and fan it out. Returns whether downstream delivery (Sheet,
+ * staff email) should run: false when an identical submission was already
+ * processed in the last few minutes — the record is still stored in Redis so
+ * nothing is lost, but the team isn't told twice. See lib/dedupe.ts.
+ */
+export async function saveLead(record: LeadRecord): Promise<{ duplicate: boolean }> {
   const client = redis();
   if (!client) {
     console.warn(
@@ -78,7 +85,18 @@ export async function saveLead(record: LeadRecord): Promise<void> {
       console.error(`[agency-health-check] Redis write failed for lead ${record.leadId}:`, err);
     }
   }
+
+  const duplicate = await isDuplicateSubmission(
+    { email: record.contact.email, phone: record.contact.phone, intent: record.intent },
+    client
+  );
+  if (duplicate) {
+    console.warn(`[agency-health-check] lead ${record.leadId} repeats a submission from the last 15 min — stored, not forwarded.`);
+    return { duplicate: true };
+  }
+
   await forwardToWebhook(record);
+  return { duplicate: false };
 }
 
 export async function getLeadById(leadId: string): Promise<LeadRecord | undefined> {

@@ -70,6 +70,8 @@ export const COPY = {
     bookCallCta: "Speak With Our Team About Your Report",
     bookCallSub: "We'll review your results with you on the call.",
     orDivider: "or",
+    // Both CTAs show this (disabled) once a valid submission has gone out.
+    submittedLabel: "Request received",
     // Secondary path (outline, shown second) — NOT an alternative to the
     // call. Both buttons always email the report (see
     // app/api/lead/route.ts); this one just shows the on-screen score

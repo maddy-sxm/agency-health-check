@@ -112,11 +112,14 @@ export async function POST(request: Request) {
     createdAt: new Date().toISOString(),
   };
 
-  await saveLead(record);
+  const { duplicate } = await saveLead(record);
 
   // Internal "new lead" alert to the SPEEDX team (lib/email.ts). Runs for
-  // both intents; never throws; the lead is already saved above.
-  await sendLeadNotificationEmail(record);
+  // both intents; never throws; the lead is already saved above. Skipped,
+  // like the Sheet row, when this is a repeat of a submission from the last
+  // few minutes (see lib/dedupe.ts) — the respondent still gets a normal
+  // response so the UI behaves identically.
+  if (!duplicate) await sendLeadNotificationEmail(record);
 
   // Fires for BOTH intents — the "report" and "call" CTAs are additive,
   // not alternatives: choosing to book a call doesn't forfeit the emailed
@@ -125,7 +128,7 @@ export async function POST(request: Request) {
   // longer gates the email. A failure here shouldn't fail the whole
   // request: the lead is already saved either way, and
   // sendAgencyHealthReportEmail itself never throws (see lib/email.ts).
-  await sendAgencyHealthReportEmail(record);
+  if (!duplicate) await sendAgencyHealthReportEmail(record);
 
   // Only the public result goes back to the browser — never
   // internalLeadScore / internalClassification.

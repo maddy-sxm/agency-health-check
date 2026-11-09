@@ -19,7 +19,7 @@ Opens at http://localhost:3107 (next available port after the sibling tools' 310
 
 ### Local dev without Redis
 
-Unlike the sibling tools, `lib/leads.ts` here does **not** throw if `KV_REST_API_URL` / `KV_REST_API_TOKEN` are unset — it logs a warning and no-ops instead, so the full assessment flow can be built and QA'd end to end before real Upstash credentials exist. **This must be fixed before production launch** — set real credentials (see below) so leads actually persist.
+Unlike the sibling tools, `lib/leads.ts` here does **not** throw if `KV_REST_API_URL` / `KV_REST_API_TOKEN` are unset — it logs a warning and no-ops instead. Production is connected to the shared Upstash store `upstash-kv-almond-house` via Vercel Storage (since 2026-11-09), so every lead is persisted server-side regardless of the Sheet or email.
 
 ## The three scores — why they're structurally separate
 
@@ -79,6 +79,13 @@ With every component present this is the original formula. A component with no d
 **Removed (2026-09-29): the 4 qualification/benchmark questions** (revenue, marketing spend, agency spend, renewal timing) that used to sit between steps 10 and 11. Their definitions (`QUALIFICATION_QUESTIONS` in `lib/questions.ts`) and the scoring that reads them are still in the codebase; the client now always sends `qualificationAnswers: {}`.
 
 **Internal lead score after the removal:** those answers carried 65% of the score's weight. Rather than score missing data as zero (which capped every lead at 35, "Tier 4: Low Fit"), the score is now a weighted average over the components actually collected — today role and agency pain, at their approved 20:15 ratio. Each lead stores `internalScoreBasis` (visible in the sheet's Raw Payload JSON) so a score can be read in context. If the questions return, the original formula applies again automatically. The sheet's `Monthly Marketing Budget` column is blank while they're removed.
+
+## Duplicate submissions
+
+Two guards, both added 2026-11-09 after one respondent produced eight rows and eight staff emails by re-clicking:
+
+1. **Client** — `ReportPreviewScreen` disables both CTAs (label "Request received") after the first valid submit. Matters most on the "call" path, where the `mailto:` link opens the mail client without leaving the page.
+2. **Server** — `lib/dedupe.ts` marks (email, phone, CTA) in Redis for 15 minutes; a repeat inside that window is still stored in Redis but is not forwarded to the Sheet or emailed. Fails open without Redis. Tested in `tests/dedupe.test.ts`.
 
 ## Lead data isolation
 
