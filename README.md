@@ -19,7 +19,7 @@ Opens at http://localhost:3107 (next available port after the sibling tools' 310
 
 ### Local dev without Redis
 
-Unlike the sibling tools, `lib/leads.ts` here does **not** throw if `KV_REST_API_URL` / `KV_REST_API_TOKEN` are unset — it logs a warning and no-ops instead. Production is connected to the shared Upstash store `upstash-kv-almond-house` via Vercel Storage (since 2026-11-09), so every lead is persisted server-side regardless of the Sheet or email.
+Unlike the sibling tools, `lib/leads.ts` here does **not** throw if `KV_REST_API_URL` / `KV_REST_API_TOKEN` are unset — it logs a warning and no-ops instead. Production does **not** yet have Redis connected (as of 2026-11-09 the legacy `upstash-kv-almond-house` store cannot be attached — Vercel asks to reinstall it — and a new Upstash database is pending plan approval). Until it is, the Sheet webhook and the email alert are the only lead records; connecting Redis is the open item that makes every lead persist server-side regardless of Sheet access.
 
 ## The three scores — why they're structurally separate
 
