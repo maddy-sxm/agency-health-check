@@ -30,7 +30,7 @@
  */
 
 import { Redis } from "@upstash/redis";
-import { isDuplicateSubmission } from "./dedupe";
+import { isDuplicateSubmission, releaseDuplicateReservation } from "./dedupe";
 import { forwardLeadToSheet } from "./sheets-webhook";
 import type { LeadRecord } from "./types";
 
@@ -56,11 +56,12 @@ function redis(): Redis | null {
 }
 
 /**
- * Fan-out to every downstream destination. Each target must swallow its
- * own errors — a failure here must never fail the respondent's request.
+ * Fan-out to every downstream destination. Each target swallows its own
+ * errors — a failure here must never fail the respondent's request — and
+ * reports success so the caller can decide whether delivery happened.
  */
-async function forwardToWebhook(record: LeadRecord): Promise<void> {
-  await forwardLeadToSheet(record);
+async function forwardToWebhook(record: LeadRecord): Promise<boolean> {
+  return forwardLeadToSheet(record);
 }
 
 /**
@@ -86,16 +87,18 @@ export async function saveLead(record: LeadRecord): Promise<{ duplicate: boolean
     }
   }
 
-  const duplicate = await isDuplicateSubmission(
-    { email: record.contact.email, phone: record.contact.phone, intent: record.intent },
-    client
-  );
+  const identity = { email: record.contact.email, phone: record.contact.phone, intent: record.intent };
+  const duplicate = await isDuplicateSubmission(identity, client);
   if (duplicate) {
-    console.warn(`[agency-health-check] lead ${record.leadId} repeats a submission from the last 15 min — stored, not forwarded.`);
+    console.warn(`[agency-health-check] lead ${record.leadId} repeats a submission from the last few minutes — stored, not forwarded.`);
     return { duplicate: true };
   }
 
-  await forwardToWebhook(record);
+  const delivered = await forwardToWebhook(record);
+  if (!delivered) {
+    // Don't let a failed Sheet write hide the next attempt behind the dedupe window.
+    await releaseDuplicateReservation(identity, client);
+  }
   return { duplicate: false };
 }
 
