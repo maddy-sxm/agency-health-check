@@ -18,19 +18,22 @@
  * Production MUST have these set — see README.md.
  *
  * ============================================================================
- * DOWNSTREAM DELIVERY (Google Sheets)
+ * DOWNSTREAM DELIVERY (Google Sheets + GoHighLevel)
  * ============================================================================
- * Every saved lead is also POSTed to the SPEEDX Google Sheet via
- * `forwardToWebhook()` below — see lib/sheets-webhook.ts for the payload
- * mapping and scripts/google-sheets-webhook.gs for the receiving Apps
- * Script. This runs whether or not Redis is configured, so the sheet is the
- * one destination that always receives a completed submission. To add a
- * second destination (CRM, Zapier, etc.), extend `forwardToWebhook()`.
+ * Every saved lead is also sent downstream by `forwardToWebhook()` below:
+ *  - the SPEEDX Google Sheet — lib/sheets-webhook.ts for the payload
+ *    mapping, scripts/google-sheets-webhook.gs for the receiving Apps Script;
+ *  - the GoHighLevel CRM — lib/ghl-webhook.ts (contact, tags, note and an
+ *    opportunity in Marketing Pipeline → New Lead).
+ * Both run whether or not Redis is configured, in parallel, and each is a
+ * no-op until its env var is set (LEAD_WEBHOOK_URL / GHL_WEBHOOK_URL). To
+ * add another destination, extend `forwardToWebhook()`.
  * ============================================================================
  */
 
 import { Redis } from "@upstash/redis";
 import { isDuplicateSubmission, shortenDuplicateReservation } from "./dedupe";
+import { forwardLeadToGhl, ghlWebhookUrl } from "./ghl-webhook";
 import { forwardLeadToSheet } from "./sheets-webhook";
 import type { LeadRecord } from "./types";
 
@@ -56,19 +59,25 @@ function redis(): Redis | null {
 }
 
 /**
- * Fan-out to every downstream destination. Each target swallows its own
- * errors — a failure here must never fail the respondent's request — and
- * reports success so the caller can decide whether delivery happened.
+ * Fan-out to every downstream destination, in parallel. Each target
+ * swallows its own errors — a failure here must never fail the respondent's
+ * request — and reports success. `deliveryFailed` is true when any
+ * *configured* destination failed to take the lead (a real transport
+ * failure, not "not configured"), so the caller can let a retry through
+ * sooner.
  */
-async function forwardToWebhook(record: LeadRecord): Promise<boolean> {
-  return forwardLeadToSheet(record);
+async function forwardToWebhook(record: LeadRecord): Promise<{ deliveryFailed: boolean }> {
+  const [sheetOk, ghlOk] = await Promise.all([forwardLeadToSheet(record), forwardLeadToGhl(record)]);
+  const sheetFailed = !sheetOk && Boolean(process.env.LEAD_WEBHOOK_URL);
+  const ghlFailed = !ghlOk && ghlWebhookUrl() !== null;
+  return { deliveryFailed: sheetFailed || ghlFailed };
 }
 
 /**
  * Persist the lead and fan it out. Returns whether downstream delivery (Sheet,
- * staff email) should run: false when an identical submission was already
- * processed in the last few minutes — the record is still stored in Redis so
- * nothing is lost, but the team isn't told twice. See lib/dedupe.ts.
+ * CRM, staff email) should run: false when an identical submission was
+ * already processed in the last few minutes — the record is still stored in
+ * Redis so nothing is lost, but the team isn't told twice. See lib/dedupe.ts.
  */
 export async function saveLead(record: LeadRecord): Promise<{ duplicate: boolean }> {
   const client = redis();
@@ -94,8 +103,8 @@ export async function saveLead(record: LeadRecord): Promise<{ duplicate: boolean
     return { duplicate: true };
   }
 
-  const delivered = await forwardToWebhook(record);
-  if (!delivered && process.env.LEAD_WEBHOOK_URL) {
+  const { deliveryFailed } = await forwardToWebhook(record);
+  if (deliveryFailed) {
     // A real transport failure (not "webhook unconfigured"): shorten the
     // reservation so the next attempt isn't hidden for the full window.
     await shortenDuplicateReservation(identity, client);

@@ -19,7 +19,7 @@ Opens at http://localhost:3107 (next available port after the sibling tools' 310
 
 ### Local dev without Redis
 
-Unlike the sibling tools, `lib/leads.ts` here does **not** throw if `KV_REST_API_URL` / `KV_REST_API_TOKEN` are unset — it logs a warning and no-ops instead. Production does **not** yet have Redis connected (as of 2026-11-09 the legacy `upstash-kv-almond-house` store cannot be attached — Vercel asks to reinstall it — and a new Upstash database is pending plan approval). Until it is, the Sheet webhook and the email alert are the only lead records; connecting Redis is the open item that makes every lead persist server-side regardless of Sheet access.
+Unlike the sibling tools, `lib/leads.ts` here does **not** throw if `KV_REST_API_URL` / `KV_REST_API_TOKEN` are unset — it logs a warning and no-ops instead. Production does **not** yet have Redis connected (as of 2026-11-09 the legacy `upstash-kv-almond-house` store cannot be attached — Vercel asks to reinstall it — and a new Upstash database is pending plan approval). Until it is, the Sheet webhook, the CRM and the email alert are the only lead records; connecting Redis is the open item that makes every lead persist server-side regardless of Sheet access.
 
 ## The three scores — why they're structurally separate
 
@@ -85,7 +85,7 @@ With every component present this is the original formula. A component with no d
 Two guards, both added 2026-11-09 after one respondent produced eight rows and eight staff emails by re-clicking:
 
 1. **Client** — `ReportPreviewScreen` disables both CTAs (label "Request received") after the first valid submit. Matters most on the "call" path, where the `mailto:` link opens the mail client without leaving the page.
-2. **Server** — `lib/dedupe.ts` reserves a SHA-256 of (email, phone, CTA) in Redis for 5 minutes; a repeat inside that window is still stored in Redis but is not forwarded to the Sheet or emailed. If the Sheet write fails (a real transport error, not "webhook unconfigured") the reservation is shortened to 30 seconds so a retry gets through soon; it is never deleted on request. No PII in key names. Fails open without Redis. Tested in `tests/dedupe.test.ts`.
+2. **Server** — `lib/dedupe.ts` reserves a SHA-256 of (email, phone, CTA) in Redis for 5 minutes; a repeat inside that window is still stored in Redis but is not forwarded to the Sheet or the CRM, and is not emailed. If a configured destination (Sheet or CRM) fails to take the lead (a real transport error, not "webhook unconfigured") the reservation is shortened to 30 seconds so a retry gets through soon; it is never deleted on request. No PII in key names. Fails open without Redis. Tested in `tests/dedupe.test.ts`.
 
 ## Lead data isolation
 
@@ -100,7 +100,23 @@ Setup:
 2. Set `LEAD_WEBHOOK_URL` to that URL in the hosting project's env vars (Production) and redeploy.
 3. Verify: `GET` the URL in a browser returns `{"ok":true,...}`; a test submission appends a row.
 
-Failures are logged and never fail the respondent's request. Re-deploy a new Apps Script version after editing the script. To add another destination (CRM, Zapier), extend `forwardToWebhook()` in `lib/leads.ts`.
+Failures are logged and never fail the respondent's request. Re-deploy a new Apps Script version after editing the script. To add another destination, extend `forwardToWebhook()` in `lib/leads.ts`.
+
+## GoHighLevel (CRM) sync
+
+Every completed submission is also POSTed straight to the CRM (GoHighLevel, SPEEDXMEDIA sub-account) by `forwardLeadToGhl()` in `lib/ghl-webhook.ts`, called from `saveLead()` alongside the Sheet write (in parallel, after the duplicate guard). The receiver is a GoHighLevel workflow with an **Inbound Webhook** trigger, "Agency Health Check → GHL (tool leads)". For each new lead it:
+
+1. creates or updates the contact (name, email, phone, job title, contact source = `utm_source` or `direct`, landing URL, UTM campaign/medium/term/content);
+2. tags it `agency rate tool` (the tag the team's lists already use for this tool), `ahc: strategy call` or `ahc: report` (which CTA), and `ahc: tier 1`–`4` (internal lead tier);
+3. assigns the owner, if the contact has none;
+4. saves the full diagnostic as a note (scores, archetype, pillars, strengths/gaps, synthesis, every answer, source);
+5. opens an opportunity in **Marketing Pipeline → New Lead**, named `<Name> - Agency Health Check (<Tier>)`. The sub-account does not allow duplicate opportunities, so a contact who already has an open one is left as is.
+
+Setup: copy the workflow trigger's URL into `GHL_WEBHOOK_URL` (hosting project env vars, Production) and redeploy. Unset, the sync is a silent no-op. **The URL is a credential — never commit it** (this repository is public). The payload is flat string fields (`buildGhlLeadPayload()`); the workflow maps them as `{{inboundWebhookRequest.<key>}}`, so rename a key in both places. A network error, timeout, 429 or 5xx is retried once; failures are logged and never fail the respondent's request. Pure builders and the retry logic are covered by `tests/ghl-webhook.test.ts`.
+
+`mode` in the payload is always `"live"` from the app. The workflow also has a `"backfill"` branch (find the contact by email, add the tags and the note, change nothing else) that was used once, on 2026-11-16, to tag the submissions that predate this sync.
+
+**This replaces the Google Sheet → Zapier → GoHighLevel zap** that fed the CRM until 2026-11-16. That zap must be off while `GHL_WEBHOOK_URL` is set, or each lead is written to the CRM by both (the opportunity is not duplicated, but the contact gets a second note). The Sheet itself is unaffected and still receives every lead.
 
 ## Tracking tags
 
@@ -128,4 +144,4 @@ Env vars: `MAILGUN_API_KEY`, `MAILGUN_DOMAIN`, `MAILGUN_REGION` (`us`/`eu`), `MA
 ## Known placeholders to fill in before launch
 
 - `lib/copy.ts` — `CTA_HREF` points at a `mailto:` placeholder; swap for the real booking/contact destination (used by both the results-screen CTA and the lead form's "Set Up a Free Strategy Call" button). `COPY.footer.email` is a placeholder company contact address.
-- `.env.local` — see `.env.example`. In production `LEAD_WEBHOOK_URL` (sheet) and the `MAILGUN_*` vars (email) must be set.
+- `.env.local` — see `.env.example`. In production `LEAD_WEBHOOK_URL` (sheet), `GHL_WEBHOOK_URL` (CRM) and the `MAILGUN_*` vars (email) must be set.
