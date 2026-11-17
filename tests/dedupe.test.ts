@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { phoneIdentity } from "../lib/phone";
 import { DEDUPE_WINDOW_SECONDS, RETRY_GRACE_SECONDS, duplicateKey, isDuplicateSubmission, shortenDuplicateReservation } from "../lib/dedupe";
 
 const base = { email: "Jane@Acme.com ", phone: "(555) 010-2026", intent: "call" as const };
@@ -9,8 +10,10 @@ test("duplicate key normalises email case/whitespace and phone digits, and conta
   assert.match(key, /^agency-health-check:dedupe:[0-9a-f]{64}$/);
   assert.ok(!key.includes("acme") && !key.includes("5550102026"));
   assert.equal(duplicateKey({ ...base, email: "jane@acme.com", phone: "555-010-2026" }), key);
-  assert.equal(duplicateKey({ ...base, phone: "+1 555 010 2026" }), key, "country-code variants are the same number");
-  assert.equal(duplicateKey({ ...base, phone: "1-555-010-2026" }), key);
+  for (const variant of ["+1 555 010 2026", "1-555-010-2026", "+5550102026", "5550102026", " 555.010.2026 "]) {
+    assert.equal(duplicateKey({ ...base, phone: variant }), key, `"${variant}" is the same number`);
+  }
+  assert.notEqual(duplicateKey({ ...base, phone: "555-010-2027" }), key, "a different number is a different identity");
 });
 
 test("the two CTAs are tracked separately", () => {
@@ -46,4 +49,12 @@ test("a Redis error fails open (not a duplicate)", async () => {
   const client = { set: async () => { throw new Error("down"); }, expire: async () => { throw new Error("down"); } };
   assert.equal(await isDuplicateSubmission(base, client), false);
   await shortenDuplicateReservation(base, client); // must not throw
+});
+
+test("phone identity: digits only, US/Canada country code dropped, other numbers untouched", () => {
+  assert.equal(phoneIdentity("+1 (555) 010-2026"), "5550102026");
+  assert.equal(phoneIdentity("+5550102026"), "5550102026");
+  assert.equal(phoneIdentity("+44 20 7946 0958"), "442079460958");
+  assert.equal(phoneIdentity("32965455"), "32965455");
+  assert.equal(phoneIdentity("12345678901234"), "12345678901234", "only an 11-digit number loses a leading 1");
 });

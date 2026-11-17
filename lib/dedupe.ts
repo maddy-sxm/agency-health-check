@@ -22,7 +22,7 @@
  */
 
 import { createHash } from "node:crypto";
-import { normalizePhone } from "./phone";
+import { phoneIdentity } from "./phone";
 
 export const DEDUPE_WINDOW_SECONDS = 5 * 60;
 /** TTL applied to a reservation whose delivery failed. */
@@ -42,9 +42,9 @@ export interface DedupeClient {
 
 export function duplicateKey(input: DedupeInput): string {
   const email = input.email.trim().toLowerCase();
-  // Same normalisation the CRM payload uses, so "555-010-2026" and
-  // "+1 (555) 010-2026" are one identity here just as they are one contact there.
-  const phone = normalizePhone(input.phone).replace(/\D/g, "");
+  // Canonical digits (lib/phone.ts), so punctuation, a typed "+" or the
+  // US/Canada country code can't make the same number look like a new one.
+  const phone = phoneIdentity(input.phone);
   const digest = createHash("sha256").update(`${email}|${phone}|${input.intent}`).digest("hex");
   return `agency-health-check:dedupe:${digest}`;
 }
