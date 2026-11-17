@@ -9,6 +9,8 @@ test("duplicate key normalises email case/whitespace and phone digits, and conta
   assert.match(key, /^agency-health-check:dedupe:[0-9a-f]{64}$/);
   assert.ok(!key.includes("acme") && !key.includes("5550102026"));
   assert.equal(duplicateKey({ ...base, email: "jane@acme.com", phone: "555-010-2026" }), key);
+  assert.equal(duplicateKey({ ...base, phone: "+1 555 010 2026" }), key, "country-code variants are the same number");
+  assert.equal(duplicateKey({ ...base, phone: "1-555-010-2026" }), key);
 });
 
 test("the two CTAs are tracked separately", () => {

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { GHL_TOOL_TAG, buildGhlLeadPayload, buildGhlNote, forwardLeadToGhl, ghlWebhookUrl, normalizePhone, tidyName } from "../lib/ghl-webhook";
+import { GHL_TOOL_TAG, buildGhlLeadPayload, buildGhlNote, describeFetchError, forwardLeadToGhl, ghlWebhookUrl, normalizePhone, tidyName } from "../lib/ghl-webhook";
 import { computePublicResult } from "../lib/scoring";
 import type { DiagnosticAnswers, LeadRecord } from "../lib/types";
 
@@ -135,23 +135,23 @@ test("url: unset, blank or non-https means not configured", () => {
   assert.equal(ghlWebhookUrl({ GHL_WEBHOOK_URL: ` ${URL} ` }), URL);
 });
 
-test("forward: not configured -> false, nothing sent", async () => {
+test("forward: not configured -> 'unconfigured', nothing sent", async () => {
   let calls = 0;
   const fetchImpl = (async () => {
     calls++;
     return ok();
   }) as typeof fetch;
-  assert.equal(await forwardLeadToGhl(record, { url: null, fetchImpl }), false);
+  assert.equal(await forwardLeadToGhl(record, { url: null, fetchImpl }), "unconfigured");
   assert.equal(calls, 0);
 });
 
-test("forward: POSTs the JSON payload once and resolves true on 200", async () => {
+test("forward: POSTs the JSON payload once and resolves 'delivered' on 200", async () => {
   const seen: Array<{ url: string; init: RequestInit }> = [];
   const fetchImpl = (async (url: string, init: RequestInit) => {
     seen.push({ url, init });
     return ok();
   }) as unknown as typeof fetch;
-  assert.equal(await forwardLeadToGhl(record, { url: URL, fetchImpl }), true);
+  assert.equal(await forwardLeadToGhl(record, { url: URL, fetchImpl }), "delivered");
   assert.equal(seen.length, 1);
   assert.equal(seen[0].url, URL);
   assert.equal(seen[0].init.method, "POST");
@@ -166,7 +166,7 @@ test("forward: a 5xx or a network error is retried once; success on the retry co
     if (calls === 1) return new Response("upstream", { status: 502 });
     return ok();
   }) as typeof fetch;
-  assert.equal(await silenced(() => forwardLeadToGhl(record, { url: URL, fetchImpl: flaky, retryDelayMs: 0 })), true);
+  assert.equal(await silenced(() => forwardLeadToGhl(record, { url: URL, fetchImpl: flaky, retryDelayMs: 0 })), "delivered");
   assert.equal(calls, 2);
 
   calls = 0;
@@ -174,16 +174,40 @@ test("forward: a 5xx or a network error is retried once; success on the retry co
     calls++;
     throw new Error("ECONNRESET");
   }) as typeof fetch;
-  assert.equal(await silenced(() => forwardLeadToGhl(record, { url: URL, fetchImpl: down, retryDelayMs: 0 })), false);
+  assert.equal(await silenced(() => forwardLeadToGhl(record, { url: URL, fetchImpl: down, retryDelayMs: 0 })), "failed");
   assert.equal(calls, 2, "two attempts, then give up — never throws");
 });
 
-test("forward: a 4xx is a configuration error and is not retried", async () => {
+test("forward: a 4xx is a configuration error — 'rejected', not retried", async () => {
   let calls = 0;
   const rejected = (async () => {
     calls++;
     return new Response("not found", { status: 404 });
   }) as typeof fetch;
-  assert.equal(await silenced(() => forwardLeadToGhl(record, { url: URL, fetchImpl: rejected, retryDelayMs: 0 })), false);
+  assert.equal(await silenced(() => forwardLeadToGhl(record, { url: URL, fetchImpl: rejected, retryDelayMs: 0 })), "rejected");
   assert.equal(calls, 1);
+});
+
+test("logs: never the webhook URL, the payload or the upstream response body", async () => {
+  const lines: string[] = [];
+  const original = console.error;
+  console.error = (...args: unknown[]) => lines.push(args.map(String).join(" "));
+  try {
+    const leaky = (async () => new Response(`echo ${record.contact.email} ${URL}`, { status: 500 })) as typeof fetch;
+    await forwardLeadToGhl(record, { url: URL, fetchImpl: leaky, retryDelayMs: 0 });
+    const badUrl = (async () => {
+      throw new TypeError(`Failed to parse URL from ${URL}`);
+    }) as typeof fetch;
+    await forwardLeadToGhl(record, { url: URL, fetchImpl: badUrl, retryDelayMs: 0 });
+  } finally {
+    console.error = original;
+  }
+  assert.equal(lines.length, 4, "two attempts each");
+  for (const line of lines) {
+    assert.ok(!line.includes(URL) && !line.includes("webhook-trigger"), "webhook URL leaked: " + line);
+    assert.ok(!line.toLowerCase().includes("jane@acme.com"), "PII leaked: " + line);
+    assert.ok(line.includes("lead-123"), "keeps the lead id for correlation");
+  }
+  assert.equal(describeFetchError(new TypeError(`Failed to parse URL from ${URL}`), URL), "TypeError: Failed to parse URL from [webhook url]");
+  assert.equal(describeFetchError(Object.assign(new TypeError("fetch failed"), { cause: { code: "ECONNRESET" } }), URL), "TypeError: fetch failed (ECONNRESET)");
 });

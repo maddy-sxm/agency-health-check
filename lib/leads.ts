@@ -33,7 +33,8 @@
 
 import { Redis } from "@upstash/redis";
 import { isDuplicateSubmission, shortenDuplicateReservation } from "./dedupe";
-import { forwardLeadToGhl, ghlWebhookUrl } from "./ghl-webhook";
+import { forwardLeadToGhl } from "./ghl-webhook";
+import type { GhlDeliveryOutcome } from "./ghl-webhook";
 import { forwardLeadToSheet } from "./sheets-webhook";
 import type { LeadRecord } from "./types";
 
@@ -61,16 +62,24 @@ function redis(): Redis | null {
 /**
  * Fan-out to every downstream destination, in parallel. Each target
  * swallows its own errors — a failure here must never fail the respondent's
- * request — and reports success. `deliveryFailed` is true when any
- * *configured* destination failed to take the lead (a real transport
- * failure, not "not configured"), so the caller can let a retry through
- * sooner.
+ * request — and reports what happened.
+ *
+ * `undelivered` is true only when NO destination took the lead and at least
+ * one of them failed in a way a retry could fix (a Sheet transport error, or
+ * a CRM network error / 429 / 5xx). A CRM 4xx is a configuration problem,
+ * and one destination failing while the other succeeded still leaves the
+ * lead recorded — neither should loosen the duplicate guard.
  */
-async function forwardToWebhook(record: LeadRecord): Promise<{ deliveryFailed: boolean }> {
-  const [sheetOk, ghlOk] = await Promise.all([forwardLeadToSheet(record), forwardLeadToGhl(record)]);
-  const sheetFailed = !sheetOk && Boolean(process.env.LEAD_WEBHOOK_URL);
-  const ghlFailed = !ghlOk && ghlWebhookUrl() !== null;
-  return { deliveryFailed: sheetFailed || ghlFailed };
+async function forwardToWebhook(record: LeadRecord): Promise<{ undelivered: boolean }> {
+  const [sheetOk, ghl] = await Promise.all([forwardLeadToSheet(record), forwardLeadToGhl(record)]);
+  return { undelivered: leadWentUndelivered({ ok: sheetOk, configured: Boolean(process.env.LEAD_WEBHOOK_URL) }, ghl) };
+}
+
+/** The rule above, pure — tested in tests/leads.test.ts. */
+export function leadWentUndelivered(sheet: { ok: boolean; configured: boolean }, ghl: GhlDeliveryOutcome): boolean {
+  const delivered = sheet.ok || ghl === "delivered";
+  const retryCouldHelp = (!sheet.ok && sheet.configured) || ghl === "failed";
+  return !delivered && retryCouldHelp;
 }
 
 /**
@@ -103,10 +112,11 @@ export async function saveLead(record: LeadRecord): Promise<{ duplicate: boolean
     return { duplicate: true };
   }
 
-  const { deliveryFailed } = await forwardToWebhook(record);
-  if (deliveryFailed) {
-    // A real transport failure (not "webhook unconfigured"): shorten the
-    // reservation so the next attempt isn't hidden for the full window.
+  const { undelivered } = await forwardToWebhook(record);
+  if (undelivered) {
+    // Nothing downstream took the lead, for a reason a retry could fix (not
+    // "webhook unconfigured"): shorten the reservation so the next attempt
+    // isn't hidden for the full window.
     await shortenDuplicateReservation(identity, client);
   }
   return { duplicate: false };

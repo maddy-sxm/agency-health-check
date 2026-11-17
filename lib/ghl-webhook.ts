@@ -23,6 +23,7 @@
  */
 
 import { COPY } from "./copy";
+import { normalizePhone } from "./phone";
 import { DIAGNOSTIC_QUESTIONS, SERVICE_OPTIONS } from "./questions";
 import { splitName } from "./sheets-webhook";
 import { ROLE_OPTIONS } from "./types";
@@ -32,6 +33,8 @@ import type { LeadRecord, PillarResult } from "./types";
 const GHL_TIMEOUT_MS = 3500;
 const GHL_ATTEMPTS = 2;
 const GHL_RETRY_DELAY_MS = 250;
+
+export { normalizePhone };
 
 /** Tag the team already uses for this tool's leads in the CRM — smart lists depend on it. */
 export const GHL_TOOL_TAG = "agency rate tool";
@@ -88,20 +91,6 @@ export interface GhlLeadPayload {
 function optionLabel(options: readonly { id: string; label: string }[], id: string | undefined): string {
   if (!id) return "";
   return options.find((o) => o.id === id)?.label ?? id;
-}
-
-/**
- * US/Canada numbers as E.164 (+1XXXXXXXXXX) so the CRM can match, call and
- * text them. Anything else — international, short, typo'd — is passed
- * through as typed rather than guessed at.
- */
-export function normalizePhone(raw: string): string {
-  const trimmed = raw.trim();
-  const digits = trimmed.replace(/\D/g, "");
-  if (trimmed.startsWith("+") && digits.length >= 8) return `+${digits}`;
-  if (digits.length === 10) return `+1${digits}`;
-  if (digits.length === 11 && digits.startsWith("1")) return `+${digits}`;
-  return trimmed;
 }
 
 /**
@@ -247,20 +236,41 @@ export interface GhlForwardOptions {
 }
 
 /**
- * POST the lead to the GoHighLevel workflow. Resolves to true when
- * GoHighLevel accepted it, false otherwise (including "not configured").
- * A network error, timeout, 429 or 5xx is retried once; a 4xx is a
- * configuration problem and is not. Never throws.
+ * What happened to one lead:
+ *  - "delivered"    GoHighLevel accepted it;
+ *  - "failed"       network error, timeout, 429 or 5xx, after the retry — trying again later may work;
+ *  - "rejected"     a 4xx: the URL or workflow is misconfigured — trying again will not help;
+ *  - "unconfigured" GHL_WEBHOOK_URL is not set, nothing was sent.
  */
-export async function forwardLeadToGhl(record: LeadRecord, options: GhlForwardOptions = {}): Promise<boolean> {
+export type GhlDeliveryOutcome = "delivered" | "failed" | "rejected" | "unconfigured";
+
+/**
+ * A loggable description of a fetch failure. Never the error object itself:
+ * some fetch errors ("Failed to parse URL from …") quote the request URL,
+ * and the webhook URL is a credential that must not reach the logs.
+ */
+export function describeFetchError(err: unknown, url: string): string {
+  const name = err instanceof Error ? err.name : "Error";
+  const cause = err instanceof Error ? (err.cause as { code?: unknown } | undefined) : undefined;
+  const code = typeof cause?.code === "string" ? ` (${cause.code})` : "";
+  const message = (err instanceof Error ? err.message : String(err)).split(url).join("[webhook url]").slice(0, 160);
+  return `${name}: ${message}${code}`;
+}
+
+/**
+ * POST the lead to the GoHighLevel workflow and report what happened (see
+ * GhlDeliveryOutcome). A network error, timeout, 429 or 5xx is retried
+ * once; a 4xx is a configuration problem and is not. Never throws, and
+ * never logs the webhook URL, the payload or the upstream response body.
+ */
+export async function forwardLeadToGhl(record: LeadRecord, options: GhlForwardOptions = {}): Promise<GhlDeliveryOutcome> {
   const url = options.url === undefined ? ghlWebhookUrl() : options.url;
-  if (!url) return false; // Not configured: nothing to send, nothing to warn about.
+  if (!url) return "unconfigured"; // Nothing to send, nothing to warn about.
 
   const doFetch = options.fetchImpl ?? fetch;
   const body = JSON.stringify(buildGhlLeadPayload(record, options.mode ?? "live"));
 
   for (let attempt = 1; attempt <= GHL_ATTEMPTS; attempt++) {
-    let retryable = true;
     try {
       const res = await doFetch(url, {
         method: "POST",
@@ -268,16 +278,13 @@ export async function forwardLeadToGhl(record: LeadRecord, options: GhlForwardOp
         body,
         signal: AbortSignal.timeout(GHL_TIMEOUT_MS),
       });
-      if (res.ok) return true;
-      retryable = res.status === 429 || res.status >= 500;
-      console.error(
-        `[agency-health-check] GoHighLevel webhook HTTP ${res.status} for lead ${record.leadId} (attempt ${attempt}/${GHL_ATTEMPTS}): ${(await res.text()).slice(0, 200)}`
-      );
+      if (res.ok) return "delivered";
+      console.error(`[agency-health-check] GoHighLevel webhook HTTP ${res.status} for lead ${record.leadId} (attempt ${attempt}/${GHL_ATTEMPTS}).`);
+      if (res.status !== 429 && res.status < 500) return "rejected";
     } catch (err) {
-      console.error(`[agency-health-check] GoHighLevel webhook failed for lead ${record.leadId} (attempt ${attempt}/${GHL_ATTEMPTS}):`, err);
+      console.error(`[agency-health-check] GoHighLevel webhook failed for lead ${record.leadId} (attempt ${attempt}/${GHL_ATTEMPTS}): ${describeFetchError(err, url)}`);
     }
-    if (!retryable) break;
     if (attempt < GHL_ATTEMPTS) await new Promise((resolve) => setTimeout(resolve, options.retryDelayMs ?? GHL_RETRY_DELAY_MS));
   }
-  return false;
+  return "failed";
 }
